@@ -1,4 +1,4 @@
-# VocabReview
+# ReviewVocab
 
 ![Demo](demo.png "Demo Screenshot")
 
