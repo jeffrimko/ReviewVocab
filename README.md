@@ -1,5 +1,7 @@
 # VocabReview
 
+![Demo](demo.png "Demo Screenshot")
+
 ## Introduction
 This a Python CLI script for reviewing foreign language vocab.
 
