@@ -2,22 +2,23 @@
 ## SECTION: Imports                                             #
 ##==============================================================#
 
+from collections import namedtuple
+from threading import Thread, Lock
 import os
 import os.path as op
 import random; random.seed()
 import string
 import tempfile
 import unicodedata
-from collections import namedtuple
-from threading import Thread, Lock
 
-import qprompt as q
-import related
 from auxly import callstop, trycatch
-from auxly.stringy import subat, randomize
 from auxly.filesys import File, delete
+from auxly.stringy import subat, randomize
 from gtts import gTTS as tts
 from playsound import playsound
+from unidecode import unidecode
+import qprompt as q
+import related
 
 ##==============================================================#
 ## SECTION: Global Definitions                                  #
@@ -78,18 +79,22 @@ class Practice(object):
         self.miss = set()
         self.okay = set()
         path = get_file(self.config.path)
-        lines = [line.strip() for line in File(path).readlines() if line][:self.config.num]
+        lines = [line.strip() for line in File(path).read().splitlines() if line][:self.config.num]
         random.shuffle(lines)
         for (num, line) in enumerate(lines):
             q.hrule()
             q.echo("%s of %s" % (num+1, len(lines)))
             self._ask(line)
-        fmiss = File(op.join(self.config.path, MISSED_VOCAB))
+        fmiss = File(self.config.path, MISSED_VOCAB)
         for miss in self.miss:
             fmiss.append(miss + "\n")
+        q.hrule()
+        q.echo("Results:")
+        q.echo(f"Correct = {len(self.okay)}")
+        q.echo(f"Missed = {len(self.miss)}")
+        q.hrule()
 
     def _ask(self, line):
-        line = unicodedata.normalize('NFKD', line).encode('ascii','replace').decode("utf-8").strip()
         if not line: return
         qst = TextInfo(line.split(";")[0], self.config.lang1)
         ans = TextInfo(line.split(";")[1], self.config.lang2)
@@ -99,25 +104,36 @@ class Practice(object):
         if ans.lang.hint:
             msg += " (%s)" % hint(ans.text, ans.lang.hint)
         talk_qst = callstop(talk)
+        missed = False
         while True:
             q.alert(msg)
             if qst.lang.talk:
                 talk_qst(qst.text, qst.lang.name.short)
             rsp = q.ask_str("").lower().strip()
             ok = [x.lower().strip() for x in ans.text.split("(")[0].split("/")]
+            ok_ascii = []
+            for o in ok:
+                ascii_only = unidecode(o)
+                if ascii_only not in ok:
+                    ok_ascii.append(ascii_only)
+            ok += ok_ascii
             if rsp in ok:
                 q.echo("[CORRECT] " + ans.text)
-                self.okay.add(line)
             else:
                 q.error(ans.text)
-                self.miss.add(line)
+                missed = True
                 if self.config.redo:
                     continue
+            if missed:
+                self.miss.add(line)
+            else:
+                self.okay.add(line)
             if ans.lang.talk:
                 talk(ans.text, ans.lang.name.short, wait=True)
             return
 
 class Util(object):
+    """Provides a CLI utility for vocab practice."""
     def __init__(self, config):
         self.config = config
 
@@ -194,7 +210,7 @@ def make_random_file(path, num=20):
     while len(vocabs) != num:
         random.shuffle(vfiles)
         filenum = random.randrange(len(vfiles))
-        lines = [line.strip() for line in File(vfiles[filenum]).readlines() if line]
+        lines = [line.strip() for line in File(vfiles[filenum]).read().splitlines() if line]
         linenum = random.randrange(len(lines))
         vocab = lines[linenum]
         if vocab not in vocabs:
@@ -203,9 +219,11 @@ def make_random_file(path, num=20):
     File(rpath, del_at_exit=True).write("\n".join(vocabs))
     return rpath
 
-def sort_all(path):
+def sort_all(dirpath):
+    """Alphabetically sort the contents of all found vocabulary txt files in
+    the given directory path."""
     okay = True
-    for f in listdir(path):
+    for f in listdir(dirpath):
         if f.endswith(".txt"):
             okay &= q.status("Sorting `%s`..." % op.basename(f), sort_file, [f])
     msg = "All files sorted successfully." if okay else "Issue sorting some files!"
@@ -213,33 +231,34 @@ def sort_all(path):
     q.wrap(msg, char=char)
 
 def sort_file(path=None):
+    """Alphabetically sort the contents of the given vocabulary txt file."""
     if not path:
         path = ask_file("File to sort")
     if not path.endswith(".txt"):
         q.error("Can only sort `.txt` files!")
         return
     with open(path) as fi:
-        lines = fi.readlines()
+        lines = fi.read().splitlines()
     sorts = []
     okay = True
     for num,line in enumerate(lines):
         line = line.strip()
         try:
             if not line: continue
-            en,it = line.split(";")
-            enx = ""
-            itx = ""
-            if en.find("(") > -1:
-                en,enx = en.split("(")
-                en = en.strip()
-                enx = " (" + enx
-            if it.find("(") > -1:
-                it,itx = it.split("(")
-                it = it.strip()
-                itx = " (" + itx
-            en = "/".join(sorted(en.split("/")))
-            it = "/".join(sorted(it.split("/")))
-            sorts.append("%s%s;%s%s" % (en,enx,it,itx))
+            l1,l2 = line.split(";")
+            l1x = ""
+            l2x = ""
+            if l1.find("(") > -1:
+                l1,l1x = l1.split("(")
+                l1 = l1.strip()
+                l1x = " (" + l1x
+            if l2.find("(") > -1:
+                l2,l2x = l2.split("(")
+                l2 = l2.strip()
+                l2x = " (" + l2x
+            l1 = "/".join(sorted(l1.split("/")))
+            l2 = "/".join(sorted(l2.split("/")))
+            sorts.append("%s%s;%s%s" % (l1,l1x,l2,l2x))
         except:
             okay = False
             temp = unicodedata.normalize('NFKD', line).encode('ascii','ignore').strip()
@@ -277,7 +296,7 @@ def count(path):
     for i in listdir(path):
         if not i.endswith(".txt"): continue
         if i.startswith("__temp"): continue
-        num = len(File(i).readlines())
+        num = len(File(i).read().splitlines())
         total += num
         q.echo("%u\t%s" % (num, op.basename(i)))
     q.wrap("Total = %u" % (total))

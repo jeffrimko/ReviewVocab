@@ -1,5 +1,6 @@
-related==0.6.3
-gTTS==1.2.2
-playsound==1.2.2
-auxly==0.5.2
-qprompt==0.11.0
+auxly
+gTTS
+playsound
+qprompt
+related
+unidecode
