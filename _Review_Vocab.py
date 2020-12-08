@@ -3,6 +3,7 @@
 ##==============================================================#
 
 from collections import namedtuple
+from difflib import SequenceMatcher
 from threading import Thread, Lock
 import os
 import os.path as op
@@ -10,12 +11,15 @@ import random; random.seed()
 import string
 import tempfile
 import unicodedata
+import time
+from datetime import datetime
 
 from auxly import callstop, trycatch
-from auxly.filesys import File, delete
+from auxly.filesys import File, Path, delete
 from auxly.stringy import subat, randomize
 from gtts import gTTS as tts
 from playsound import playsound
+from tinydb import TinyDB, Query
 from unidecode import unidecode
 import qprompt as q
 import related
@@ -74,6 +78,8 @@ class Practice(object):
         self.config = config
         self.miss = set()
         self.okay = set()
+        dbpath = Path(self.config.path, "db.json")
+        self.db = TinyDB(dbpath)
 
     def start(self):
         self.miss = set()
@@ -104,12 +110,14 @@ class Practice(object):
         if ans.lang.hint:
             msg += " (%s)" % hint(ans.text, ans.lang.hint)
         talk_qst = callstop(talk)
-        missed = False
+        tries = 0
         while True:
             q.alert(msg)
             if qst.lang.talk:
                 talk_qst(qst.text, qst.lang.name.short)
+            t_start = time.time()
             rsp = q.ask_str("").lower().strip()
+            sec = time.time() - t_start
             ok = [x.lower().strip() for x in ans.text.split("(")[0].split("/")]
             ok_ascii = []
             for o in ok:
@@ -117,20 +125,46 @@ class Practice(object):
                 if ascii_only not in ok:
                     ok_ascii.append(ascii_only)
             ok += ok_ascii
+
+            record = {}
+            record['sec'] = sec
+            record['date'] = datetime.utcnow().isoformat()
+            record['rsp'] = rsp
+            record['qst'] = qst.text
+            record['ans'] = ans.text
+            record['qlg'] = qst.lang.name.short
+            record['alg'] = ans.lang.name.short
+            record['hnt'] = ans.lang.hint
+            record['try'] = tries
             if rsp in ok:
                 q.echo("[CORRECT] " + ans.text)
+                record['sim'] = 1.0
+                self.db.insert(record)
             else:
                 q.error(ans.text)
-                missed = True
+                tries += 1
+                record['sim'] = guess_similarity(rsp, ok)
+                self.db.insert(record)
                 if self.config.redo:
                     continue
-            if missed:
+
+            if tries > 0:
                 self.miss.add(line)
             else:
                 self.okay.add(line)
             if ans.lang.talk:
                 talk(ans.text, ans.lang.name.short, wait=True)
             return
+
+def guess_similarity(rsp, okay):
+    highest = 0.0
+    word = ""
+    for ok in okay:
+        ratio = SequenceMatcher(None, rsp, ok).ratio()
+        if ratio > highest:
+            highest = ratio
+            word = ok
+    return highest
 
 class Util(object):
     """Provides a CLI utility for vocab practice."""
