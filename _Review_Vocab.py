@@ -127,17 +127,7 @@ class Practice(object):
                     ok_ascii.append(ascii_only)
             ok += ok_ascii
 
-            record = {}
-            record['sc'] = sec
-            record['dt'] = datetime.utcnow().isoformat()
-            record['ln'] = line
-            record['rs'] = rsp
-            record['qt'] = qst.text
-            record['at'] = ans.text
-            record['ql'] = qst.lang.name.short
-            record['al'] = ans.lang.name.short
-            record['ht'] = ans.lang.hint
-            record['tr'] = tries
+            record = self.prep_record(line, rsp, qst, ans, sec, tries)
             if rsp in ok:
                 q.echo("[CORRECT] " + ans.text)
                 record['ok'] = 1.0
@@ -158,15 +148,20 @@ class Practice(object):
                 talk(ans.text, ans.lang.name.short, wait=True)
             return
 
-def guess_similarity(rsp, okay):
-    highest = 0.0
-    word = ""
-    for ok in okay:
-        ratio = SequenceMatcher(None, rsp, ok).ratio()
-        if ratio > highest:
-            highest = ratio
-            word = ok
-    return highest
+    @staticmethod
+    def prep_record(line, rsp, qst, ans, sec, tries):
+        record = {}
+        record['dt'] = datetime.utcnow().isoformat()
+        record['ln'] = line
+        record['rs'] = rsp
+        record['qt'] = qst.text
+        record['at'] = ans.text
+        record['ql'] = qst.lang.name.short
+        record['al'] = ans.lang.name.short
+        record['ht'] = ans.lang.hint
+        record['tr'] = tries
+        record['sc'] = sec
+        return record
 
 class Util(object):
     """Provides a CLI utility for vocab practice."""
@@ -176,7 +171,8 @@ class Util(object):
     def main_menu(self):
         def start(swap=False):
             p = PracticeConfig(swap=swap, **related.to_dict(self.config))
-            trycatch(Practice(p).start)()
+            # trycatch(Practice(p).start)()
+            Practice(p).start()
         menu = q.Menu()
         menu.add("1", f"{self.config.lang1.name.full} to {self.config.lang2.name.full}", start, [False])
         menu.add("2", f"{self.config.lang2.name.full} to {self.config.lang1.name.full}", start, [True])
@@ -204,6 +200,17 @@ class Util(object):
 ##==============================================================#
 ## SECTION: Function Definitions                                #
 ##==============================================================#
+
+def guess_similarity(actual, expected):
+    """Compares the given actual word input against a list of expected words
+    and returns the best similarity match as a ratio where 1.0 is correct and
+    0.0 is very incorrect."""
+    highest = 0.0
+    for exp in expected:
+        ratio = SequenceMatcher(None, actual, exp).ratio()
+        if ratio > highest:
+            highest = ratio
+    return highest
 
 def get_file(path):
     menu = q.Menu()
@@ -349,7 +356,8 @@ def main():
     cpath = trycatch(lambda: sys.argv[1], oncatch=lambda: "config.yaml")()
     config = related.to_model(UtilConfig, related.from_yaml(File(cpath).read()))
     util = Util(config)
-    trycatch(util.main_menu)()
+    # trycatch(util.main_menu)()
+    util.main_menu()
 
 ##==============================================================#
 ## SECTION: Main Body                                           #
