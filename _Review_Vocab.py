@@ -6,6 +6,7 @@ from collections import namedtuple
 from difflib import SequenceMatcher
 from threading import Thread, Lock
 import os
+import sys
 import os.path as op
 import random; random.seed()
 import string
@@ -127,23 +128,24 @@ class Practice(object):
             ok += ok_ascii
 
             record = {}
-            record['sec'] = sec
-            record['date'] = datetime.utcnow().isoformat()
-            record['rsp'] = rsp
-            record['qst'] = qst.text
-            record['ans'] = ans.text
-            record['qlg'] = qst.lang.name.short
-            record['alg'] = ans.lang.name.short
-            record['hnt'] = ans.lang.hint
-            record['try'] = tries
+            record['sc'] = sec
+            record['dt'] = datetime.utcnow().isoformat()
+            record['ln'] = line
+            record['rs'] = rsp
+            record['qt'] = qst.text
+            record['at'] = ans.text
+            record['ql'] = qst.lang.name.short
+            record['al'] = ans.lang.name.short
+            record['ht'] = ans.lang.hint
+            record['tr'] = tries
             if rsp in ok:
                 q.echo("[CORRECT] " + ans.text)
-                record['sim'] = 1.0
+                record['ok'] = 1.0
                 self.db.insert(record)
             else:
                 q.error(ans.text)
                 tries += 1
-                record['sim'] = guess_similarity(rsp, ok)
+                record['ok'] = guess_similarity(rsp, ok)
                 self.db.insert(record)
                 if self.config.redo:
                     continue
@@ -328,11 +330,14 @@ def hint(vocab, hintnum, skipchars=" /'"):
 def count(path):
     total = 0
     for i in listdir(path):
-        if not i.endswith(".txt"): continue
-        if i.startswith("__temp"): continue
-        num = len(File(i).read().splitlines())
-        total += num
-        q.echo("%u\t%s" % (num, op.basename(i)))
+        try:
+            if not i.endswith(".txt"): continue
+            if i.startswith("__temp"): continue
+            num = len(File(i).readlines())
+            total += num
+            q.echo("%u\t%s" % (num, op.basename(i)))
+        except:
+            pass
     q.wrap("Total = %u" % (total))
 
 def listdir(path):
@@ -341,7 +346,8 @@ def listdir(path):
             yield op.join(path, f)
 
 def main():
-    config = related.to_model(UtilConfig, related.from_yaml(File("config.yaml").read()))
+    cpath = trycatch(lambda: sys.argv[1], oncatch=lambda: "config.yaml")()
+    config = related.to_model(UtilConfig, related.from_yaml(File(cpath).read()))
     util = Util(config)
     trycatch(util.main_menu)()
 
