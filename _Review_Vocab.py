@@ -3,17 +3,17 @@
 ##==============================================================#
 
 from collections import namedtuple
+from datetime import datetime
 from difflib import SequenceMatcher
 from threading import Thread, Lock
 import os
-import sys
 import os.path as op
 import random; random.seed()
 import string
+import sys
 import tempfile
-import unicodedata
 import time
-from datetime import datetime
+import unicodedata
 
 from auxly import callstop, trycatch
 from auxly.filesys import File, Path, delete
@@ -29,8 +29,7 @@ import related
 ## SECTION: Global Definitions                                  #
 ##==============================================================#
 
-MISSED_VOCAB = "__temp-vocab_to_review.txt"
-
+MISSED_VOCAB = "__temp-missed_vocab.txt"
 RANDOM_VOCAB = "__temp-random_vocab.txt"
 
 TALK_LOCK = Lock()
@@ -86,8 +85,9 @@ class Practice(object):
         self.miss = set()
         self.okay = set()
         path = get_file(self.config.path)
-        lines = [line.strip() for line in File(path).read().splitlines() if line][:self.config.num]
+        lines = [line.strip() for line in File(path).read().splitlines() if line]
         random.shuffle(lines)
+        lines = lines[:self.config.num]
         for (num, line) in enumerate(lines):
             q.hrule()
             q.echo("%s of %s" % (num+1, len(lines)))
@@ -171,8 +171,7 @@ class Util(object):
     def main_menu(self):
         def start(swap=False):
             p = PracticeConfig(swap=swap, **related.to_dict(self.config))
-            # trycatch(Practice(p).start)()
-            Practice(p).start()
+            trycatch(Practice(p).start)()
         menu = q.Menu()
         menu.add("1", f"{self.config.lang1.name.full} to {self.config.lang2.name.full}", start, [False])
         menu.add("2", f"{self.config.lang2.name.full} to {self.config.lang1.name.full}", start, [True])
@@ -356,8 +355,7 @@ def main():
     cpath = trycatch(lambda: sys.argv[1], oncatch=lambda: "config.yaml")()
     config = related.to_model(UtilConfig, related.from_yaml(File(cpath).read()))
     util = Util(config)
-    # trycatch(util.main_menu)()
-    util.main_menu()
+    trycatch(util.main_menu)()
 
 ##==============================================================#
 ## SECTION: Main Body                                           #
