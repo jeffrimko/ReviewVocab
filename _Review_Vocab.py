@@ -119,7 +119,8 @@ class Practice(object):
             t_start = time.time()
             rsp = q.ask_str("").lower().strip()
             sec = time.time() - t_start
-            ok = parse_valid(ans.text)
+            ok_orig = parse_valid(ans.text)
+            ok = [] + ok_orig
             ok_ascii = []
             for o in ok:
                 ascii_only = unidecode(o)
@@ -128,15 +129,15 @@ class Practice(object):
             ok += ok_ascii
 
             record = self.prep_record(line, rsp, qst, ans, sec, tries)
+            closest_orig, _ = guess_similarity(rsp, ok_orig)
             if rsp in ok:
-                say = rsp
-                q.echo("[CORRECT] " + say)
                 record['ok'] = 1.0
+                q.echo("[CORRECT] " + closest_orig)
                 self.db.insert(record)
             else:
                 tries += 1
-                say, record['ok'] = guess_similarity(rsp, ok)
-                q.error(say)
+                _, record['ok'] = guess_similarity(rsp, ok)
+                q.error(closest_orig)
                 self.db.insert(record)
                 if self.config.redo:
                     continue
@@ -146,6 +147,7 @@ class Practice(object):
             else:
                 self.okay.add(line)
             if ans.lang.talk:
+                say, _ = guess_similarity(rsp, ok_orig)
                 talk(say, ans.lang.name.short, wait=True)
             return
 
