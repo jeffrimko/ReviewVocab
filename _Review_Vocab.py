@@ -119,7 +119,7 @@ class Practice(object):
             t_start = time.time()
             rsp = q.ask_str("").lower().strip()
             sec = time.time() - t_start
-            ok = [x.lower().strip() for x in ans.text.split("(")[0].split("/")]
+            ok = parse_valid(ans.text)
             ok_ascii = []
             for o in ok:
                 ascii_only = unidecode(o)
@@ -129,13 +129,14 @@ class Practice(object):
 
             record = self.prep_record(line, rsp, qst, ans, sec, tries)
             if rsp in ok:
-                q.echo("[CORRECT] " + ans.text)
+                say = rsp
+                q.echo("[CORRECT] " + say)
                 record['ok'] = 1.0
                 self.db.insert(record)
             else:
-                q.error(ans.text)
                 tries += 1
-                record['ok'] = guess_similarity(rsp, ok)
+                say, record['ok'] = guess_similarity(rsp, ok)
+                q.error(say)
                 self.db.insert(record)
                 if self.config.redo:
                     continue
@@ -145,7 +146,7 @@ class Practice(object):
             else:
                 self.okay.add(line)
             if ans.lang.talk:
-                talk(ans.text, ans.lang.name.short, wait=True)
+                talk(say, ans.lang.name.short, wait=True)
             return
 
     @staticmethod
@@ -200,16 +201,60 @@ class Util(object):
 ## SECTION: Function Definitions                                #
 ##==============================================================#
 
+def parse_valid(text):
+    """Parses the input formatted text into a list of valid strings."""
+    specialchars = "/()"
+    for char in specialchars:
+        text = text.replace(char, f" {char} ")
+    toks = text.split()
+
+    # Remove text in quotes.
+    included = []
+    include = True
+    for tok in toks:
+        if tok == "(": include = False
+        elif tok == ")": include = True
+        else:
+            if include:
+                included.append(tok)
+
+    # Parse final valid text.
+    valid = []
+    prep = [""]
+    for inc in included:
+        if "|" in inc:
+            prep += prep
+            even,odd = inc.split("|")
+            for j,_ in enumerate(prep):
+                if j / len(prep) < 0.5:
+                    prep[j] += even + " "
+                else:
+                    prep[j] += odd + " "
+        elif inc == "/":
+            for i,_ in enumerate(prep):
+                if prep[i]:
+                    valid.append(prep[i].strip())
+                prep = [""]
+        else:
+            for i,_ in enumerate(prep):
+                prep[i] += inc + " "
+    for i,_ in enumerate(prep):
+        if prep[i]:
+            valid.append(prep[i].strip())
+    return valid
+
 def guess_similarity(actual, expected):
     """Compares the given actual word input against a list of expected words
     and returns the best similarity match as a ratio where 1.0 is correct and
     0.0 is very incorrect."""
-    highest = 0.0
+    max_vocab = expected[0]
+    max_ratio = 0.0
     for exp in expected:
         ratio = SequenceMatcher(None, actual, exp).ratio()
-        if ratio > highest:
-            highest = ratio
-    return highest
+        if ratio > max_ratio:
+            max_vocab = exp
+            max_ratio = ratio
+    return max_vocab, max_ratio
 
 def get_file(path):
     menu = q.Menu()

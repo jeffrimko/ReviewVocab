@@ -17,8 +17,10 @@ Vocab files are formatted as follows:
   - Each line is a single vocab entry.
   - Vocab entry lines use the format: `<lang1>;<lang2>`
       * Example: `hello;ciao`
-  - Synonyms are separated with a `/`.
-      * Example: `goodbye;addio/ciao`
+  - Equivalent individual words are separated with a `|`.
+      * Example: `goodbye;addio|ciao`
+  - Equivalent translations are separated with a `/`.
+      * Example: `the car;l'auto/la macchina`
   - Append additional info in parenthesis.
       * Example: `hello (formal);buongiorno`
   - Literal translations are shown in parenthesis prefixed with `lit`:
