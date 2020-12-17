@@ -57,21 +57,17 @@ class TextInfo(object):
     lang = related.ChildField(LanguageInfo)
 
 @related.mutable
-class PracticeConfig(object):
-    lang1 = related.ChildField(LanguageInfo)
-    lang2 = related.ChildField(LanguageInfo)
-    num = related.IntegerField(default=10)
-    path = related.StringField(default="")
-    redo = related.BooleanField(default=False)
-    swap = related.BooleanField(default=False)
-
-@related.mutable
 class UtilConfig(object):
     lang1 = related.ChildField(LanguageInfo)
     lang2 = related.ChildField(LanguageInfo)
     redo = related.BooleanField(default=False)
     path = related.StringField(default=".")
     num = related.IntegerField(default=10)
+    record = related.BooleanField(default=True)
+
+@related.mutable
+class PracticeConfig(UtilConfig):
+    swap = related.BooleanField(default=False)
 
 class Practice(object):
     def __init__(self, config):
@@ -133,12 +129,14 @@ class Practice(object):
             if rsp in ok:
                 record['ok'] = 1.0
                 q.echo("[CORRECT] " + closest_orig)
-                self.db.insert(record)
+                if self.config.record:
+                    self.db.insert(record)
             else:
                 tries += 1
                 _, record['ok'] = guess_similarity(rsp, ok)
                 q.error(closest_orig)
-                self.db.insert(record)
+                if self.config.record:
+                    self.db.insert(record)
                 if self.config.redo:
                     continue
 
@@ -189,13 +187,14 @@ class Util(object):
             default = getattr(s.conf, s.name)
             setattr(s.conf, s.name, s.func(f"{s.name.capitalize()}", default=default))
         settings = [
+                Setting("record", q.ask_yesno, self.config),
                 Setting("redo", q.ask_yesno, self.config),
                 Setting("num", q.ask_int, self.config),
                 Setting("hint", q.ask_int, self.config.lang2),
                 Setting("talk", q.ask_yesno, self.config.lang2)]
         menu = q.Menu()
-        for s in settings:
-            menu.add(s.name[0], s.name.capitalize(), change, [s])
+        for i,s in enumerate(settings, 1):
+            menu.add(str(i), s.name.capitalize(), change, [s])
         menu.add("p", "Print", print, [self.config])
         menu.main(loop=True)
 
