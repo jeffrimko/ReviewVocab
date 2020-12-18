@@ -32,6 +32,8 @@ import related
 MISSED_VOCAB = "__temp-missed_vocab.txt"
 RANDOM_VOCAB = "__temp-random_vocab.txt"
 
+PREVIOUS_PATH = None
+
 TALK_LOCK = Lock()
 
 Setting = namedtuple('Setting', 'name func conf')
@@ -284,15 +286,23 @@ def guess_similarity(actual, expected):
             max_ratio = ratio
     return max_vocab, max_ratio
 
-def get_file(path):
+def get_file(dpath):
+    global PREVIOUS_PATH
     menu = q.Menu()
     menu.add("f", "Select file")
     menu.add("r", "Random vocab")
+    if PREVIOUS_PATH:
+        menu.add("p", f"Previous file ({PREVIOUS_PATH.filename})")
     choice = menu.show()
+    fpath = None
     if "f" == choice:
-        return ask_file(path)
+        fpath = ask_file(dpath)
+    elif "p" == choice:
+        fpath = PREVIOUS_PATH
     else:
-        return make_random_file(path)
+        fpath = make_random_file(dpath)
+    PREVIOUS_PATH = Path(fpath)
+    return fpath
 
 def ask_file(dpath, msg="File to review (blank to list)"):
     """Prompts user for a file to review. Returns the file name."""
