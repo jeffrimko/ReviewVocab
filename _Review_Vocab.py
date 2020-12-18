@@ -103,7 +103,7 @@ class Practice(object):
         ans = TextInfo(line.split(";")[1], self.config.lang2)
         if self.config.swap:
             ans,qst = qst,ans
-        msg = qst.text
+        msg = (random.choice(parse_valid(qst.text)) + " " + parse_extra(qst.text)).strip()
         if ans.lang.hint:
             msg += " (%s)" % hint(ans.text, ans.lang.hint)
         talk_qst = callstop(talk)
@@ -202,6 +202,27 @@ class Util(object):
 ## SECTION: Function Definitions                                #
 ##==============================================================#
 
+def parse_extra(text):
+    specialchars = "()"
+    for char in specialchars:
+        text = text.replace(char, f" {char} ")
+    toks = text.split()
+
+    # Include text in parenthesis.
+    included = []
+    include = False
+    for tok in toks:
+        if tok == "(":
+            include = True
+            included.append(tok)
+        elif tok == ")":
+            include = False
+            included.append(tok)
+        else:
+            if include:
+                included.append(tok)
+    return " ".join(included).replace("( ", "(").replace(" )", ")")
+
 def parse_valid(text):
     """Parses the input formatted text into a list of valid strings."""
     specialchars = "/()"
@@ -209,7 +230,7 @@ def parse_valid(text):
         text = text.replace(char, f" {char} ")
     toks = text.split()
 
-    # Remove text in quotes.
+    # Exclude text in parenthesis.
     included = []
     include = True
     for tok in toks:
