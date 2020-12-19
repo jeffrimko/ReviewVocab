@@ -80,13 +80,14 @@ class Practice(object):
         self.db = TinyDB(dbpath)
 
     def start(self):
-        self.miss = set()
-        self.okay = set()
         path = get_file(self.config.path)
         lines = [line.strip() for line in File(path).read().splitlines() if line]
         random.shuffle(lines)
         lines = lines[:self.config.num]
         while True:
+            q.clear()
+            self.miss = set()
+            self.okay = set()
             for (num, line) in enumerate(lines):
                 q.hrule()
                 q.echo("%s of %s" % (num+1, len(lines)))
@@ -104,6 +105,7 @@ class Practice(object):
             if q.ask_yesno("Shuffle?", default=True):
                 random.shuffle(lines)
                 lines = lines[:self.config.num]
+            
 
     def _ask(self, line):
         if not line: return
@@ -136,7 +138,7 @@ class Practice(object):
             closest_orig, _ = guess_similarity(rsp, ok_orig)
             if rsp in ok:
                 record['ok'] = 1.0
-                q.echo("[CORRECT] " + closest_orig)
+                q.echo("[CORRECT] " + ans.text)
                 if self.config.record:
                     self.db.insert(record)
             else:
