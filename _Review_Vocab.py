@@ -8,7 +8,9 @@ from difflib import SequenceMatcher
 from threading import Thread, Lock
 import os
 import os.path as op
+import math
 import random; random.seed()
+import statistics
 import string
 import sys
 import tempfile
@@ -52,6 +54,7 @@ class LanguageInfo(object):
     name = related.ChildField(LanguageName)
     talk = related.BooleanField(default=False)
     hint = related.IntegerField(default=0)
+    dynamic = related.BooleanField(default=False)
 
 @related.mutable
 class TextInfo(object):
@@ -105,7 +108,6 @@ class Practice(object):
             if q.ask_yesno("Shuffle?", default=True):
                 random.shuffle(lines)
                 lines = lines[:self.config.num]
-            
 
     def _ask(self, line):
         if not line: return
@@ -113,9 +115,21 @@ class Practice(object):
         ans = TextInfo(line.split(";")[1], self.config.lang2)
         if self.config.swap:
             ans,qst = qst,ans
-        msg = (random.choice(parse_valid(qst.text)) + " " + parse_extra(qst.text)).strip()
-        if ans.lang.hint:
-            msg += " (%s)" % hint(ans.text, ans.lang.hint)
+        rnq = random.choice(parse_valid(qst.text))
+        rna = random.choice(parse_valid(ans.text))
+        msg = (rnq + " " + parse_extra(qst.text)).strip()
+        if ans.lang.hint or ans.lang.dynamic:
+            if ans.lang.dynamic:
+                Record = Query()
+                results = self.db.search(Record.ln == line)
+                results = sorted(results, key=lambda r: r['dt'], reverse=True)[:6]
+                ratio = 0
+                if results:
+                    ratio = statistics.mean([r['ok'] for r in results])
+                    print(ratio)
+                ans.lang.hint = dynamic_hintnum(rna, ratio)
+            if ans.lang.hint:
+                msg += " (%s)" % hint(rna, ans.lang.hint)
         talk_qst = callstop(talk)
         tries = 0
         while True:
@@ -200,8 +214,9 @@ class Util(object):
                 Setting("record", q.ask_yesno, self.config),
                 Setting("redo", q.ask_yesno, self.config),
                 Setting("num", q.ask_int, self.config),
+                Setting("talk", q.ask_yesno, self.config.lang2),
                 Setting("hint", q.ask_int, self.config.lang2),
-                Setting("talk", q.ask_yesno, self.config.lang2)]
+                Setting("dynamic", q.ask_yesno, self.config.lang2)]
         menu = q.Menu()
         for i,s in enumerate(settings, 1):
             menu.add(str(i), s.name.capitalize(), change, [s])
@@ -430,6 +445,20 @@ def count(path):
         except:
             pass
     q.wrap("Total = %u" % (total))
+
+def dynamic_hintnum(vocab, ratio):
+    if ratio > 0.98:
+        return 0
+    if ratio < 0.8:
+        ratio -= 0.2
+    elif ratio < 0.9:
+        ratio -= 0.1
+    if ratio < 0.35:
+        ratio = 0.35
+    onlychars = vocab.replace(" ", "").replace("'", "").strip()
+    numchars = len(onlychars)
+    hintnum = numchars - math.floor(numchars * ratio)
+    return hintnum
 
 def listdir(path):
     for _,_,files in os.walk(path):

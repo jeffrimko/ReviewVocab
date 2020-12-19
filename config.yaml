@@ -4,12 +4,15 @@ lang1:
         full: English
     talk: false
     hint: 0
+    dynamic: False
 lang2:
     name:
-        short: it
-        full: Italian
+        short: es
+        full: Spanish
     talk: true
-    hint: 2
-redo: false
-path: ..\..\ItalianVocab\Design
-num: 10
+    hint: 1
+    dynamic: True
+redo: true
+path: ..\..\SpanishVocab\Design
+num: 12
+record: true
