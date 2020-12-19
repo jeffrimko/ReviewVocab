@@ -122,7 +122,8 @@ class Practice(object):
             if ans.lang.dynamic:
                 Record = Query()
                 results = self.db.search(Record.ln == line)
-                results = sorted(results, key=lambda r: r['dt'], reverse=True)[:6]
+                # Get most recent results.
+                results = sorted(results, key=lambda r: r['dt'], reverse=True)[:3]
                 ratio = 0
                 if results:
                     ratio = statistics.mean([r['ok'] for r in results])
