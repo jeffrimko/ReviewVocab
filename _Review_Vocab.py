@@ -126,7 +126,6 @@ class Practice(object):
                 ratio = 0
                 if results:
                     ratio = statistics.mean([r['ok'] for r in results])
-                    print(ratio)
                 ans.lang.hint = dynamic_hintnum(rna, ratio)
             if ans.lang.hint:
                 msg += " (%s)" % hint(rna, ans.lang.hint)
