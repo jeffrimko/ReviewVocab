@@ -123,10 +123,14 @@ class Practice(object):
                 Record = Query()
                 results = self.db.search(Record.ln == line)
                 # Get most recent results.
-                results = sorted(results, key=lambda r: r['dt'], reverse=True)[:3]
+                num_results = 3
+                results = sorted(results, key=lambda r: r['dt'], reverse=True)[:num_results]
+                oks = [r['ok'] for r in results]
+                while len(oks) < num_results:
+                    oks.append(0.7)
                 ratio = 0
                 if results:
-                    ratio = statistics.mean([r['ok'] for r in results])
+                    ratio = statistics.mean(oks)
                 ans.lang.hint = dynamic_hintnum(rna, ratio)
             if ans.lang.hint:
                 msg += " (%s)" % hint(rna, ans.lang.hint)
@@ -135,7 +139,7 @@ class Practice(object):
         while True:
             q.alert(msg)
             if qst.lang.talk:
-                talk_qst(qst.text, qst.lang.name.short)
+                talk_qst(rnq, qst.lang.name.short)
             t_start = time.time()
             rsp = q.ask_str("").lower().strip()
             sec = time.time() - t_start
