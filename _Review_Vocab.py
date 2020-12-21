@@ -257,11 +257,11 @@ def parse_valid(text):
     specialchars = "/()"
     for char in specialchars:
         text = text.replace(char, f" {char} ")
-    toks = text.split()
 
     # Exclude text in parenthesis.
     included = []
     include = True
+    toks = text.split()
     for tok in toks:
         if tok == "(": include = False
         elif tok == ")": include = True
@@ -271,27 +271,26 @@ def parse_valid(text):
 
     # Parse final valid text.
     valid = []
-    prep = [""]
+    proc = [""]
     for inc in included:
         if "|" in inc:
-            prep += prep
-            even,odd = inc.split("|")
-            for j,_ in enumerate(prep):
-                if j / len(prep) < 0.5:
-                    prep[j] += even + " "
-                else:
-                    prep[j] += odd + " "
+            toks = inc.split("|")
+            new_proc = []
+            for p in proc:
+                for t in toks:
+                    new_proc.append(p + t + " ")
+            proc = new_proc
         elif inc == "/":
-            for i,_ in enumerate(prep):
-                if prep[i]:
-                    valid.append(prep[i].strip())
-                prep = [""]
+            for i,_ in enumerate(proc):
+                if proc[i]:
+                    valid.append(proc[i].strip())
+                proc = [""]
         else:
-            for i,_ in enumerate(prep):
-                prep[i] += inc + " "
-    for i,_ in enumerate(prep):
-        if prep[i]:
-            valid.append(prep[i].strip())
+            for i,_ in enumerate(proc):
+                proc[i] += inc + " "
+    for i,_ in enumerate(proc):
+        if proc[i]:
+            valid.append(proc[i].strip())
     return valid
 
 def guess_similarity(actual, expected):
