@@ -31,6 +31,8 @@ import related
 ## SECTION: Global Definitions                                  #
 ##==============================================================#
 
+DEBUG_MODE = True
+
 MISSED_VOCAB = "__temp-missed_vocab.txt"
 RANDOM_VOCAB = "__temp-random_vocab.txt"
 
@@ -59,6 +61,7 @@ class LanguageInfo(object):
 @related.mutable
 class TextInfo(object):
     text = related.StringField()
+    rand = related.StringField()
     lang = related.ChildField(LanguageInfo)
 
 @related.mutable
@@ -81,6 +84,26 @@ class Practice(object):
         self.okay = set()
         dbpath = Path(self.config.path, "db.json")
         self.db = TinyDB(dbpath)
+
+    def learn(self):
+        path = get_file(self.config.path)
+        lines = [line.strip() for line in File(path).read().splitlines() if line]
+        random.shuffle(lines)
+        lines = lines[:self.config.num]
+        q.clear()
+        for num,line in enumerate(lines, 1):
+            q.echo("%s of %s" % (num, len(lines)))
+            qst,ans = self._get_qst_ans(line)
+            talk(qst.rand, qst.lang.name.short)
+            talk(ans.rand, ans.lang.name.short)
+            q.alert(qst.rand)
+            vld = Practice._get_valid(ans)
+            rsp = ""
+            while rsp not in vld:
+                q.alert(ans.rand)
+                rsp = q.ask_str("").lower().strip()
+            wait()
+            q.hrule()
 
     def start(self):
         path = get_file(self.config.path)
@@ -109,15 +132,43 @@ class Practice(object):
                 random.shuffle(lines)
                 lines = lines[:self.config.num]
 
-    def _ask(self, line):
-        if not line: return
-        qst = TextInfo(line.split(";")[0], self.config.lang1)
-        ans = TextInfo(line.split(";")[1], self.config.lang2)
+    def _get_qst_ans(self, line):
+        qst = TextInfo(line.split(";")[0], "", self.config.lang1)
+        qst.rand = random.choice(parse_valid(qst.text))
+        ans = TextInfo(line.split(";")[1], "", self.config.lang2)
+        ans.rand = random.choice(parse_valid(ans.text))
         if self.config.swap:
             ans,qst = qst,ans
-        rnq = random.choice(parse_valid(qst.text))
-        rna = random.choice(parse_valid(ans.text))
-        msg = (rnq + " " + parse_extra(qst.text)).strip()
+        return qst,ans
+
+    @staticmethod
+    def _get_msg_base(qst):
+        return (qst.rand + " " + parse_extra(qst.text)).strip()
+
+    @staticmethod
+    def _get_msg_hint(ans):
+        return " (%s)" % hint(ans.rand, ans.lang.hint)
+
+    @staticmethod
+    def _get_valid_orig(ans):
+        return parse_valid(ans.text)
+
+    @staticmethod
+    def _get_valid(ans):
+        ok_orig = Practice._get_valid_orig(ans)
+        ok = [] + ok_orig
+        ok_ascii = []
+        for o in ok:
+            ascii_only = unidecode(o)
+            if ascii_only not in ok:
+                ok_ascii.append(ascii_only)
+        ok += ok_ascii
+        return ok
+
+    def _ask(self, line):
+        if not line: return
+        qst,ans = self._get_qst_ans(line)
+        msg = Practice._get_msg_base(qst)
         if ans.lang.hint or ans.lang.dynamic:
             if ans.lang.dynamic:
                 Record = Query()
@@ -131,37 +182,29 @@ class Practice(object):
                 ratio = 0
                 if results:
                     ratio = statistics.mean(oks)
-                ans.lang.hint = dynamic_hintnum(rna, ratio)
+                ans.lang.hint = dynamic_hintnum(ans.rand, ratio)
             if ans.lang.hint:
-                msg += " (%s)" % hint(rna, ans.lang.hint)
+                msg += Practice._get_msg_hint(ans)
         talk_qst = callstop(talk)
         tries = 0
         while True:
             q.alert(msg)
             if qst.lang.talk:
-                talk_qst(rnq, qst.lang.name.short)
+                talk_qst(qst.rand, qst.lang.name.short)
             t_start = time.time()
             rsp = q.ask_str("").lower().strip()
             sec = time.time() - t_start
-            ok_orig = parse_valid(ans.text)
-            ok = [] + ok_orig
-            ok_ascii = []
-            for o in ok:
-                ascii_only = unidecode(o)
-                if ascii_only not in ok:
-                    ok_ascii.append(ascii_only)
-            ok += ok_ascii
-
-            record = self.prep_record(line, rsp, qst, ans, sec, tries)
-            closest_orig, _ = guess_similarity(rsp, ok_orig)
-            if rsp in ok:
+            vld = Practice._get_valid(ans)
+            record = self._prep_record(line, rsp, qst, ans, sec, tries)
+            closest_orig, _ = guess_similarity(rsp, Practice._get_valid_orig(ans))
+            if rsp in vld:
                 record['ok'] = 1.0
                 q.echo("[CORRECT] " + ans.text)
                 if self.config.record:
                     self.db.insert(record)
             else:
                 tries += 1
-                _, record['ok'] = guess_similarity(rsp, ok)
+                _, record['ok'] = guess_similarity(rsp, vld)
                 q.error(closest_orig)
                 if self.config.record:
                     self.db.insert(record)
@@ -173,12 +216,12 @@ class Practice(object):
             else:
                 self.okay.add(line)
             if ans.lang.talk:
-                say, _ = guess_similarity(rsp, ok_orig)
+                say, _ = guess_similarity(rsp, Practice._get_valid_orig(ans))
                 talk(say, ans.lang.name.short, wait=True)
             return
 
     @staticmethod
-    def prep_record(line, rsp, qst, ans, sec, tries):
+    def _prep_record(line, rsp, qst, ans, sec, tries):
         record = {}
         record['dt'] = datetime.utcnow().isoformat()
         record['ln'] = line
@@ -200,10 +243,14 @@ class Util(object):
     def main_menu(self):
         def start(swap=False):
             p = PracticeConfig(swap=swap, **related.to_dict(self.config))
-            trycatch(Practice(p).start)()
+            trycatch(Practice(p).start, rethrow=DEBUG_MODE)()
+        def learn():
+            p = PracticeConfig(swap=False, **related.to_dict(self.config))
+            trycatch(Practice(p).learn, rethrow=DEBUG_MODE)()
         menu = q.Menu()
         menu.add("1", f"{self.config.lang1.name.full} to {self.config.lang2.name.full}", start, [False])
         menu.add("2", f"{self.config.lang2.name.full} to {self.config.lang1.name.full}", start, [True])
+        menu.add("l", "Learn vocab", learn)
         menu.add("d", "Delete missed vocab", delete, [op.join(self.config.path, MISSED_VOCAB)])
         menu.add("c", "Count vocab", count, [self.config.path])
         menu.add("a", "Sort all files", sort_all, [self.config.path])
@@ -332,6 +379,10 @@ def ask_file(dpath, msg="File to review (blank to list)"):
         path = q.enum_menu(vfiles).show(returns="desc", limit=20)
         path = op.join(dpath, path)
     return path
+
+def wait():
+    while TALK_LOCK.locked():
+        time.sleep(0.1)
 
 def talk(text, lang, slow=False, wait=False):
     def _talk():
@@ -472,7 +523,7 @@ def main():
     cpath = trycatch(lambda: sys.argv[1], oncatch=lambda: "config.yaml")()
     config = related.to_model(UtilConfig, related.from_yaml(File(cpath).read()))
     util = Util(config)
-    trycatch(util.main_menu)()
+    trycatch(util.main_menu, rethrow=DEBUG_MODE)()
 
 ##==============================================================#
 ## SECTION: Main Body                                           #
