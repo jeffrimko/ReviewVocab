@@ -114,20 +114,21 @@ class Practice(object):
             q.clear()
             self.miss = set()
             self.okay = set()
-            for (num, line) in enumerate(lines):
-                q.hrule()
-                q.echo("%s of %s" % (num+1, len(lines)))
+            for num, line in enumerate(lines, 1):
+                q.echo("%s of %s" % (num, len(lines)))
                 self._ask(line)
+                q.hrule()
             fmiss = File(self.config.path, MISSED_VOCAB)
             for miss in self.miss:
                 fmiss.append(miss + "\n")
-            q.hrule()
             q.echo("Results:")
             q.echo(f"Correct = {len(self.okay)}")
             q.echo(f"Missed = {len(self.miss)}")
             q.hrule()
             if not q.ask_yesno("Retry?", default=False):
                 break
+            if self.miss and q.ask_yesno("Missed only?", default=False):
+                lines = list(self.miss)
             if q.ask_yesno("Shuffle?", default=True):
                 random.shuffle(lines)
                 lines = lines[:self.config.num]
