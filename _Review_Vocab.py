@@ -31,7 +31,7 @@ import related
 ## SECTION: Global Definitions                                  #
 ##==============================================================#
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 MISSED_VOCAB = "__temp-missed_vocab.txt"
 RANDOM_VOCAB = "__temp-random_vocab.txt"
@@ -94,16 +94,23 @@ class Practice(object):
         for num,line in enumerate(lines, 1):
             q.echo("%s of %s" % (num, len(lines)))
             qst,ans = self._get_qst_ans(line)
-            talk(qst.rand, qst.lang.name.short)
-            talk(ans.rand, ans.lang.name.short)
             q.alert(qst.rand)
+            q.alert(ans.rand)
+            talk(qst.rand, qst.lang.name.short)
+            talk(ans.rand, ans.lang.name.short, wait=True)
+            q.clear()
+            q.echo("%s of %s" % (num, len(lines)))
             vld = Practice._get_valid(ans)
             rsp = ""
+            ans.lang.hint = len(ans.rand) // 4
             while rsp not in vld:
-                q.alert(ans.rand)
+                msg = Practice._get_msg_base(qst) + Practice._get_msg_hint(ans)
+                q.alert(msg)
                 rsp = q.ask_str("").lower().strip()
-            wait()
-            q.hrule()
+                ans.lang.hint += 1
+            q.echo("[CORRECT] " + ans.text)
+            talk(ans.rand, ans.lang.name.short, wait=True)
+            q.clear()
 
     def start(self):
         path = get_file(self.config.path)
@@ -472,7 +479,9 @@ def hint(vocab, hintnum, skipchars=" /'"):
     excluded."""
     random.seed()
     idx = []
-    if len(vocab) <= hintnum:
+    onlychars = vocab.replace(" ", "").replace("'", "").strip()
+    numchars = len(onlychars)
+    while hintnum >= numchars:
         hintnum -= 1
     if hintnum < 1:
         hintnum = 1
