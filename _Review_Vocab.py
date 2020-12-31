@@ -97,8 +97,9 @@ class Practice(object):
             q.alert(qst.rand)
             q.alert(ans.rand)
             talk(qst.rand, qst.lang.name.short)
-            talk(ans.rand, ans.lang.name.short, wait=True)
+            talk(ans.rand, ans.lang.name.short, slow=True, wait=True)
             q.clear()
+            flush_input()
             q.echo("%s of %s" % (num, len(lines)))
             vld = Practice._get_valid(ans)
             rsp = ""
@@ -134,7 +135,7 @@ class Practice(object):
             q.hrule()
             if not q.ask_yesno("Retry?", default=False):
                 break
-            if self.miss and q.ask_yesno("Missed only?", default=False):
+            if self.miss and q.ask_yesno("Missed only?", default=True):
                 lines = list(self.miss)
             if q.ask_yesno("Shuffle?", default=True):
                 random.shuffle(lines)
@@ -528,6 +529,15 @@ def listdir(path):
     for _,_,files in os.walk(path):
         for f in files:
             yield op.join(path, f)
+
+def flush_input():
+    try:
+        import msvcrt
+        while msvcrt.kbhit():
+            msvcrt.getch()
+    except ImportError:
+        import sys, termios
+        termios.tcflush(sys.stdin, termios.TCIOFLUSH)
 
 def main():
     cpath = trycatch(lambda: sys.argv[1], oncatch=lambda: "config.yaml")()
