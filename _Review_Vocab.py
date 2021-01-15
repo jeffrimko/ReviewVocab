@@ -331,26 +331,26 @@ def parse_valid(text):
 
     # Parse final valid text.
     valid = []
-    proc = [""]
+    buff = [""]
     for inc in included:
-        if "|" in inc:
+        if inc == "/":
+            for i,_ in enumerate(buff):
+                if buff[i]:
+                    valid.append(buff[i].strip())
+            buff = [""]
+        elif "|" in inc:
             toks = inc.split("|")
-            new_proc = []
-            for p in proc:
+            new_buff = []
+            for p in buff:
                 for t in toks:
-                    new_proc.append(p + t + " ")
-            proc = new_proc
-        elif inc == "/":
-            for i,_ in enumerate(proc):
-                if proc[i]:
-                    valid.append(proc[i].strip())
-                proc = [""]
+                    new_buff.append(p + t + " ")
+            buff = new_buff
         else:
-            for i,_ in enumerate(proc):
-                proc[i] += inc + " "
-    for i,_ in enumerate(proc):
-        if proc[i]:
-            valid.append(proc[i].strip())
+            for i,_ in enumerate(buff):
+                buff[i] += inc + " "
+    for i,_ in enumerate(buff):
+        if buff[i]:
+            valid.append(buff[i].strip())
     return valid
 
 def guess_similarity(actual, expected):
