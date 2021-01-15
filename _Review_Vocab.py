@@ -94,16 +94,20 @@ class Practice(object):
         for num,line in enumerate(lines, 1):
             q.echo("%s of %s" % (num, len(lines)))
             qst,ans = self._get_qst_ans(line)
+            vld = Practice._get_valid(ans)
             q.alert(qst.rand)
             q.alert(ans.rand)
             talk(qst.rand, qst.lang.name.short)
-            talk(ans.rand, ans.lang.name.short, slow=True, wait=True)
+            talk(ans.rand, ans.lang.name.short, slow=True)
+            rsp = ""
+            while rsp not in vld:
+                rsp = q.ask_str("").lower().strip()
             q.clear()
             flush_input()
+            talk(ans.rand, ans.lang.name.short, slow=True)
             q.echo("%s of %s" % (num, len(lines)))
-            vld = Practice._get_valid(ans)
-            rsp = ""
             ans.lang.hint = len(ans.rand) // 4
+            rsp = ""
             while rsp not in vld:
                 msg = Practice._get_msg_base(qst) + Practice._get_msg_hint(ans)
                 q.alert(msg)
