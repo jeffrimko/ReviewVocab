@@ -102,6 +102,7 @@ class Practice(object):
             rsp = ""
             while rsp not in vld:
                 rsp = q.ask_str("").lower().strip()
+            wait()
             q.clear()
             flush_input()
             talk(ans.rand, ans.lang.name.short, slow=True)
@@ -316,7 +317,7 @@ def parse_valid(text):
     """Parses the input formatted text into a list of valid strings."""
     specialchars = "/()"
     for char in specialchars:
-        text = text.replace(char, f" {char} ")
+        text = text.replace(char, f" {char} ").lower()
 
     # Exclude text in parenthesis.
     included = []
@@ -372,7 +373,7 @@ def get_file(dpath):
     menu.add("f", "Select file")
     menu.add("r", "Random vocab")
     if PREVIOUS_PATH:
-        menu.add("p", f"Previous file ({PREVIOUS_PATH.filename})")
+        menu.add("p", f"Previous file ({PREVIOUS_PATH.name})")
     choice = menu.show()
     fpath = None
     if "f" == choice:
@@ -386,8 +387,9 @@ def get_file(dpath):
 
 def ask_file(dpath, msg="File to review (blank to list)"):
     """Prompts user for a file to review. Returns the file name."""
-    path = q.ask_str(msg, blk=True)
-    if not path or not op.isfile(path):
+    fname = q.ask_str(msg, blk=True)
+    path = Path(dpath, fname)
+    if not path or not path.isfile():
         vfiles = [op.basename(f) for f in listdir(dpath) if f.endswith(".txt")]
         path = q.enum_menu(vfiles).show(returns="desc", limit=20)
         path = op.join(dpath, path)
