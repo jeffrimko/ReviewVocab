@@ -147,7 +147,7 @@ class Practice(object):
                 random.shuffle(lines)
                 lines = lines[:self.config.num]
 
-    def _get_qst_ans(self, line):
+    def _get_qst_ans(self, line) -> str:
         qst = TextInfo(line.split(";")[0], "", self.config.lang1)
         qst.rand = random.choice(parse_valid(qst.text))
         ans = TextInfo(line.split(";")[1], "", self.config.lang2)
@@ -157,15 +157,15 @@ class Practice(object):
         return qst,ans
 
     @staticmethod
-    def _get_msg_base(qst: TextInfo):
+    def _get_msg_base(qst: TextInfo) -> str:
         return (qst.rand + " " + parse_extra(qst.text)).strip()
 
     @staticmethod
-    def _get_msg_hint(ans: TextInfo):
+    def _get_msg_hint(ans: TextInfo) -> str:
         return " (%s)" % hint(ans.rand, ans.lang.hint)
 
     @staticmethod
-    def _get_valid_orig(ans: TextInfo):
+    def _get_valid_orig(ans: TextInfo) -> List[str]:
         return parse_valid(ans.text)
 
     @staticmethod
@@ -181,7 +181,7 @@ class Practice(object):
         return [Practice._sanitize(i) for i in ok]
 
     @staticmethod
-    def _sanitize(txt: str):
+    def _sanitize(txt: str) -> str:
         sanitized = txt.lower().strip()
         chars_to_remove = ";,.'?!¿¡"
         for c in chars_to_remove:
