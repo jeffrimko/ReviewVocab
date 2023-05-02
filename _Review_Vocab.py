@@ -6,6 +6,7 @@ from collections import namedtuple
 from datetime import datetime
 from difflib import SequenceMatcher
 from threading import Thread, Lock
+from typing import List
 import os
 import os.path as op
 import math
@@ -78,7 +79,7 @@ class PracticeConfig(UtilConfig):
     swap = related.BooleanField(default=False)
 
 class Practice(object):
-    def __init__(self, config):
+    def __init__(self, config: PracticeConfig):
         self.config = config
         self.miss = set()
         self.okay = set()
@@ -156,19 +157,19 @@ class Practice(object):
         return qst,ans
 
     @staticmethod
-    def _get_msg_base(qst):
+    def _get_msg_base(qst: TextInfo):
         return (qst.rand + " " + parse_extra(qst.text)).strip()
 
     @staticmethod
-    def _get_msg_hint(ans):
+    def _get_msg_hint(ans: TextInfo):
         return " (%s)" % hint(ans.rand, ans.lang.hint)
 
     @staticmethod
-    def _get_valid_orig(ans):
+    def _get_valid_orig(ans: TextInfo):
         return parse_valid(ans.text)
 
     @staticmethod
-    def _get_valid(ans):
+    def _get_valid(ans: TextInfo) -> List[str]:
         ok_orig = Practice._get_valid_orig(ans)
         ok = [] + ok_orig
         ok_ascii = []
@@ -177,9 +178,17 @@ class Practice(object):
             if ascii_only not in ok:
                 ok_ascii.append(ascii_only)
         ok += ok_ascii
-        return ok
+        return [Practice._sanitize(i) for i in ok]
 
-    def _ask(self, line):
+    @staticmethod
+    def _sanitize(txt: str):
+        sanitized = txt.lower().strip()
+        chars_to_remove = ";,.'?!¿¡"
+        for c in chars_to_remove:
+            sanitized = sanitized.replace(c, '')
+        return sanitized
+
+    def _ask(self, line: str):
         if not line: return
         qst,ans = self._get_qst_ans(line)
         msg = Practice._get_msg_base(qst)
@@ -206,7 +215,7 @@ class Practice(object):
             if qst.lang.talk:
                 talk_qst(qst.rand, qst.lang.name.short)
             t_start = time.time()
-            rsp = q.ask_str("").lower().strip()
+            rsp = Practice._sanitize(q.ask_str(""))
             sec = time.time() - t_start
             vld = Practice._get_valid(ans)
             record = self._prep_record(line, rsp, qst, ans, sec, tries)
@@ -317,7 +326,7 @@ def parse_valid(text):
     """Parses the input formatted text into a list of valid strings."""
     specialchars = "/()"
     for char in specialchars:
-        text = text.replace(char, f" {char} ").lower()
+        text = text.replace(char, f" {char} ")
 
     # Exclude text in parenthesis.
     included = []
@@ -480,7 +489,7 @@ def sort_file(path=None):
             fo.write(line + "\n")
     return okay
 
-def hint(vocab, hintnum, skipchars=" /'"):
+def hint(vocab, hintnum, skipchars=" /'?¿!.,;"):
     """Returns the given string with all characters expect the given hint
     number replaced with an asterisk. The given skip characters will be
     excluded."""
