@@ -3,10 +3,10 @@
 ##==============================================================#
 
 from collections import namedtuple
-from datetime import datetime
 from difflib import SequenceMatcher
 from threading import Thread, Lock
 from typing import List
+import datetime
 import os
 import os.path as op
 import math
@@ -246,7 +246,7 @@ class Practice(object):
     @staticmethod
     def _prep_record(line, rsp, qst, ans, sec, tries):
         record = {}
-        record['dt'] = datetime.utcnow().isoformat()
+        record['dt'] = datetime.datetime.now(datetime.UTC).isoformat()
         record['ln'] = line
         record['rs'] = rsp
         record['qt'] = qst.text
