@@ -86,6 +86,22 @@ class Practice(object):
         dbpath = Path(self.config.path, "db.json")
         self.db = TinyDB(dbpath)
 
+    def listen(self):
+        path = get_file(self.config.path)
+        lines = get_lines(path)
+        random.shuffle(lines)
+        lines = lines[:self.config.num]
+        q.clear()
+        for num,line in enumerate(lines, 1):
+            q.echo("%s of %s" % (num, len(lines)))
+            qst,ans = self._get_qst_ans(line)
+            q.alert(qst.rand)
+            q.alert(ans.rand)
+            talk(qst.rand, qst.lang.name.short, wait=True)
+            talk(ans.rand, ans.lang.name.short, slow=True, wait=True)
+            talk(ans.rand, ans.lang.name.short, slow=True, wait=True)
+            talk(ans.rand, ans.lang.name.short, slow=False, wait=True)
+
     def learn(self):
         path = get_file(self.config.path)
         lines = get_lines(path)
@@ -267,12 +283,16 @@ class Util(object):
         def start(swap=False):
             p = PracticeConfig(swap=swap, **related.to_dict(self.config))
             trycatch(Practice(p).start, rethrow=DEBUG_MODE)()
+        def listen():
+            p = PracticeConfig(swap=False, **related.to_dict(self.config))
+            trycatch(Practice(p).listen, rethrow=DEBUG_MODE)()
         def learn():
             p = PracticeConfig(swap=False, **related.to_dict(self.config))
             trycatch(Practice(p).learn, rethrow=DEBUG_MODE)()
         menu = q.Menu()
         menu.add("1", f"{self.config.lang1.name.full} to {self.config.lang2.name.full}", start, [False])
         menu.add("2", f"{self.config.lang2.name.full} to {self.config.lang1.name.full}", start, [True])
+        menu.add("i", "Listen to vocab", listen)
         menu.add("l", "Learn vocab", learn)
         menu.add("d", "Delete missed vocab", delete, [op.join(self.config.path, MISSED_VOCAB)])
         menu.add("c", "Count vocab", count, [self.config.path])
