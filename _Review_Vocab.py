@@ -88,7 +88,7 @@ class Practice(object):
 
     def learn(self):
         path = get_file(self.config.path)
-        lines = [line.strip() for line in File(path).read().splitlines() if line]
+        lines = get_lines(path)
         random.shuffle(lines)
         lines = lines[:self.config.num]
         q.clear()
@@ -121,7 +121,7 @@ class Practice(object):
 
     def start(self):
         path = get_file(self.config.path)
-        lines = [line.strip() for line in File(path).read().splitlines() if line]
+        lines = get_lines(path)
         random.shuffle(lines)
         lines = lines[:self.config.num]
         while True:
@@ -430,7 +430,8 @@ def make_random_file(path, num=20):
     while len(vocabs) != num:
         random.shuffle(vfiles)
         filenum = random.randrange(len(vfiles))
-        lines = [line.strip() for line in File(vfiles[filenum]).read().splitlines() if line]
+        vpath = vfiles[filenum]
+        lines = get_lines(vpath)
         linenum = random.randrange(len(lines))
         vocab = lines[linenum]
         if vocab not in vocabs:
@@ -539,6 +540,16 @@ def dynamic_hintnum(vocab, ratio):
     numchars = len(onlychars)
     hintnum = numchars - math.floor(numchars * ratio)
     return hintnum
+
+def get_lines(path):
+    lines = []
+    for line in File(path).read().splitlines():
+        if not line:
+            continue
+        if line.startswith("//"):
+            continue
+        lines.append(line.strip())
+    return lines
 
 def listdir(path):
     for _,_,files in os.walk(path):
