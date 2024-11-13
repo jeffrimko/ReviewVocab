@@ -69,14 +69,15 @@ class TextInfo(object):
 class UtilConfig(object):
     lang1 = related.ChildField(LanguageInfo)
     lang2 = related.ChildField(LanguageInfo)
-    redo = related.BooleanField(default=False)
     path = related.StringField(default=".")
-    num = related.IntegerField(default=10)
-    record = related.BooleanField(default=True)
 
 @related.mutable
 class PracticeConfig(UtilConfig):
+    redo = related.BooleanField(default=False)
     swap = related.BooleanField(default=False)
+    shuffle = related.BooleanField(default=True)
+    num = related.IntegerField(default=10)
+    record = related.BooleanField(default=True)
 
 class Practice(object):
     def __init__(self, config: PracticeConfig):
@@ -89,15 +90,16 @@ class Practice(object):
     def listen(self):
         path = get_file(self.config.path)
         lines = get_lines(path)
-        random.shuffle(lines)
+        if self.config.shuffle:
+            random.shuffle(lines)
         lines = lines[:self.config.num]
         q.clear()
         for num,line in enumerate(lines, 1):
             q.echo("%s of %s" % (num, len(lines)))
             qst,ans = self._get_qst_ans(line)
             q.alert(qst.rand)
-            q.alert(ans.rand)
             talk(qst.rand, qst.lang.name.short, wait=True)
+            q.alert(ans.rand)
             talk(ans.rand, ans.lang.name.short, slow=True, wait=True)
             talk(ans.rand, ans.lang.name.short, slow=True, wait=True)
             talk(ans.rand, ans.lang.name.short, slow=False, wait=True)
@@ -105,7 +107,8 @@ class Practice(object):
     def learn(self):
         path = get_file(self.config.path)
         lines = get_lines(path)
-        random.shuffle(lines)
+        if self.config.shuffle:
+            random.shuffle(lines)
         lines = lines[:self.config.num]
         q.clear()
         for num,line in enumerate(lines, 1):
@@ -281,14 +284,14 @@ class Util(object):
 
     def main_menu(self):
         def start(swap=False):
-            p = PracticeConfig(swap=swap, **related.to_dict(self.config))
-            trycatch(Practice(p).start, rethrow=DEBUG_MODE)()
+            pcfg = PracticeConfig(swap=swap, **related.to_dict(self.config))
+            trycatch(Practice(pcfg).start, rethrow=DEBUG_MODE)()
         def listen():
-            p = PracticeConfig(swap=False, **related.to_dict(self.config))
-            trycatch(Practice(p).listen, rethrow=DEBUG_MODE)()
+            pcfg = PracticeConfig(swap=False, **related.to_dict(self.config))
+            trycatch(Practice(pcfg).listen, rethrow=DEBUG_MODE)()
         def learn():
-            p = PracticeConfig(swap=False, **related.to_dict(self.config))
-            trycatch(Practice(p).learn, rethrow=DEBUG_MODE)()
+            pcfg = PracticeConfig(swap=False, **related.to_dict(self.config))
+            trycatch(Practice(pcfg).learn, rethrow=DEBUG_MODE)()
         menu = q.Menu()
         menu.add("1", f"{self.config.lang1.name.full} to {self.config.lang2.name.full}", start, [False])
         menu.add("2", f"{self.config.lang2.name.full} to {self.config.lang1.name.full}", start, [True])
