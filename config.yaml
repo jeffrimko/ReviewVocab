@@ -17,17 +17,7 @@ modes:
     _common:
         reviewnum: 12
         shuffle: true
-    practice:
-        to_lang1: false
-    learn:
-        hint: 1
-        redo: true
-        lang1_talk: true
-        lang2_talk: true
     listen:
         reviewnum: 24
-        lang1: 1
-        lang2_slow: 1
-        lang2_fast: 2
     translate:
         reviewnum: 10
