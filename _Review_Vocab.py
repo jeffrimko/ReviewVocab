@@ -365,8 +365,10 @@ class ModeBase(metaclass=abc.ABCMeta):
         def trigger_quit():
             nonlocal quit
             quit = True
+        def on_err():
+            q.error("Review exited early!")
         menu = q.Menu()
-        menu.add("r", "Start review", self.review)
+        menu.add("r", "Start review", trycatch(lambda: self.review(), oncatch=on_err, rethrow=DEBUG_MODE))
         menu.add("e", "Edit config", self.config.show_editor)
         menu.add("i", "Mode info", self.show_info)
         menu.add("q", "Quit mode", trigger_quit)
