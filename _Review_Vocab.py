@@ -2,31 +2,28 @@
 ## SECTION: Imports                                             #
 ##==============================================================#
 
-from collections import namedtuple
-from difflib import SequenceMatcher
+from __future__ import annotations
+from dataclasses import asdict, dataclass, field
 from threading import Thread, Lock
-from typing import List
-import datetime
-import os
+from typing import Any, Generator, Optional
+import abc
+import itertools
 import os.path as op
-import math
 import random; random.seed()
-import statistics
-import string
+import re
 import sys
 import tempfile
 import time
-import unicodedata
 
-from auxly import callstop, trycatch
-from auxly.filesys import File, Path, delete
-from auxly.stringy import subat, randomize
+from auxly import trycatch
+from auxly.filesys import File, delete, walkfiles
+from auxly.stringy import randomize
+from dacite import from_dict
 from gtts import gTTS as tts
 from playsound import playsound
-from tinydb import TinyDB, Query
 from unidecode import unidecode
 import qprompt as q
-import related
+import yaml
 
 ##==============================================================#
 ## SECTION: Global Definitions                                  #
@@ -34,170 +31,551 @@ import related
 
 DEBUG_MODE = False
 
-MISSED_VOCAB = "__temp-missed_vocab.txt"
-RANDOM_VOCAB = "__temp-random_vocab.txt"
-
-PREVIOUS_PATH = None
-
-TALK_LOCK = Lock()
-
-Setting = namedtuple('Setting', 'name func conf')
-
 ##==============================================================#
-## SECTION: Global Definitions                                  #
+## SECTION: Class Definitions                                   #
 ##==============================================================#
 
-@related.immutable
-class LanguageName(object):
-    short = related.StringField(default="en")
-    full = related.StringField(default="English")
+@dataclass(frozen=True)
+class LanguageName:
+    short: str = "en"
+    full: str = "English"
 
-@related.mutable
-class LanguageInfo(object):
-    name = related.ChildField(LanguageName)
-    talk = related.BooleanField(default=False)
-    hint = related.IntegerField(default=0)
-    dynamic = related.BooleanField(default=False)
+@dataclass
+class CommonProviderConfig:
+    lang1: LanguageName = field(default_factory=LanguageName)
+    lang2: LanguageName = field(default_factory=LanguageName)
 
-@related.mutable
-class TextInfo(object):
-    text = related.StringField()
-    rand = related.StringField()
-    lang = related.ChildField(LanguageInfo)
+@dataclass
+class SingleFileProviderConfig(CommonProviderConfig):
+    filepath: str = ""
 
-@related.mutable
-class UtilConfig(object):
-    lang1 = related.ChildField(LanguageInfo)
-    lang2 = related.ChildField(LanguageInfo)
-    path = related.StringField(default=".")
+@dataclass
+class MultiFileProviderConfig(CommonProviderConfig):
+    filepaths: list[str] = field(default_factory=list[str])
 
-@related.mutable
-class PracticeConfig(UtilConfig):
-    redo = related.BooleanField(default=False)
-    swap = related.BooleanField(default=False)
-    shuffle = related.BooleanField(default=True)
-    num = related.IntegerField(default=10)
-    record = related.BooleanField(default=True)
+@dataclass
+class ProvidersConfig:
+    _default: str = "singlefile"
+    _common: CommonProviderConfig = field(default_factory=CommonProviderConfig)
+    singlefile: SingleFileProviderConfig = field(default_factory=SingleFileProviderConfig)
+    multifile: MultiFileProviderConfig = field(default_factory=MultiFileProviderConfig)
 
-class Practice(object):
-    def __init__(self, config: PracticeConfig):
+@dataclass
+class CommonModeConfig:
+    reviewnum: int = 10
+    shuffle: bool = False
+
+    def show_editor(self):
+        def set_field(f):
+            v = getattr(self, f)
+            if type(v) == bool:
+                new_v = q.ask_yesno("Enter new value", default=v)
+            else:
+                new_v = type(v)(q.ask_str("Enter new value", default=str(v)))
+            setattr(self, f, new_v)
+        quit = False
+        def trigger_quit():
+            nonlocal quit
+            quit = True
+        while not quit:
+            menu = q.Menu(header=f"{self.__class__.__name__} Editor")
+            for i,f in enumerate(self.__dataclass_fields__, 1):
+                v = getattr(self, f)
+                menu.add(str(i), f"{f} [{v}]", set_field, [f])
+            menu.add("q", "Quit editor", trigger_quit)
+            menu.show(note=repr(self), default="q")
+
+@dataclass
+class PracticeModeConfig(CommonModeConfig):
+    to_lang1: bool = False
+
+@dataclass
+class TranslateModeConfig(CommonModeConfig):
+    lang1_repeat: int = 1
+    lang2_repeat_slow: int = 1
+    lang2_repeat_fast: int = 2
+    listen_attempts_before_reveal: int = 2
+    translate_attempts_before_reveal: int = 2
+
+@dataclass
+class ListenModeConfig(CommonModeConfig):
+    lang1_repeat: int = 1
+    lang2_repeat_slow: int = 1
+    lang2_repeat_fast: int = 2
+    delay_between_langs: float = 1.7
+    pause_between_langs: bool = False
+    beep_after_langs: bool = True
+    lang2_first: bool = False
+
+@dataclass
+class LearnModeConfig(CommonModeConfig):
+    lang1_talk: bool = True
+    lang2_talk: bool = True
+    max_attempts: int = 2
+
+@dataclass
+class ModesConfig:
+    _common: CommonModeConfig = field(default_factory=CommonModeConfig)
+    listen: ListenModeConfig = field(default_factory=ListenModeConfig)
+    learn: LearnModeConfig = field(default_factory=LearnModeConfig)
+    translate: TranslateModeConfig = field(default_factory=TranslateModeConfig)
+    practice: PracticeModeConfig = field(default_factory=PracticeModeConfig)
+
+@dataclass
+class UtilConfig:
+    modes: ModesConfig = field(default_factory=ModesConfig)
+    providers: ProvidersConfig = field(default_factory=ProvidersConfig)
+    _cfgdict: dict[str, Any] = field(default_factory=dict)
+
+    @staticmethod
+    def from_path(path) -> UtilConfig:
+        cfile = File(path)
+        if not cfile.isfile():
+            raise Exception(f"Provided config file could not be found: {path}")
+        cfgdict = yaml.load(cfile.read(), Loader=yaml.FullLoader)
+        config = from_dict(data_class=UtilConfig, data=cfgdict)
+        config._cfgdict = cfgdict
+        return config
+
+    def for_mode(self, modename: str, overrides=None) -> Optional[CommonModeConfig]:
+        try:
+            mode = getattr(self.modes, modename)
+        except AttributeError:
+            return None
+        cfgdict = asdict(self.modes._common)
+        cfgdict.update(self._cfgdict.get('modes', {}).get(modename, {}))
+        if overrides:
+            cfgdict.update(overrides)
+        return from_dict(data_class=type(mode), data=cfgdict)
+
+    def get_default_provider(self) -> bool:
+        return self.providers._default
+
+    def has_provider(self, providername: str) -> bool:
+        return bool(self._cfgdict.get('providers', {}).get(providername, {}))
+
+    def for_provider(self, providername: str, overrides=None) -> Optional[CommonProviderConfig]:
+        try:
+            provider = getattr(self.providers, providername)
+        except AttributeError:
+            return None
+        cfgdict = asdict(self.providers._common)
+        cfgdict.update(self._cfgdict.get('providers', {}).get(providername, {}))
+        if overrides:
+            cfgdict.update(overrides)
+        return from_dict(data_class=type(provider), data=cfgdict)
+
+@dataclass(frozen=True)
+class ReviewItem:
+    line: str
+    lang1: LanguageName
+    lang1_equivs: list[str]
+    lang1_extra: str
+    lang2: LanguageName
+    lang2_equivs: list[str]
+    lang2_extra: str
+    def __hash__(self):
+        return hash(self.line) + hash(self.lang1) + hash(self.lang2)
+
+    @staticmethod
+    def parse(line: str, lang1: LanguageName, lang2: LanguageName):
+        return ReviewItem(
+            line,
+            lang1,
+            ReviewItem._get_equivs(line, 1),
+            ReviewItem._get_extra(line, 1),
+            lang2,
+            ReviewItem._get_equivs(line, 2),
+            ReviewItem._get_extra(line, 2),
+        )
+
+    @staticmethod
+    def _get_lang_index(langnum: int) -> int:
+        idx = langnum - 1
+        return idx if (idx == 0 or idx == 1) else 0
+
+    @staticmethod
+    def _get_equivs(line, langnum) -> list[str]:
+        idx = ReviewItem._get_lang_index(langnum)
+        return LangParser.get_equivs(line.split(";")[idx])
+
+    @staticmethod
+    def _get_extra(line, langnum):
+        idx = ReviewItem._get_lang_index(langnum)
+        return LangParser.get_extra(line.split(";")[idx])
+
+class Static:
+    def __new__(cls):
+        raise TypeError("Static classes cannot be instantiated")
+
+class ProviderBase(metaclass=abc.ABCMeta):
+    def __init__(self, config):
         self.config = config
-        self.miss = set()
-        self.okay = set()
-        dbpath = Path(self.config.path, "db.json")
-        self.db = TinyDB(dbpath)
 
-    def listen(self):
-        path = get_file(self.config.path)
-        lines = get_lines(path)
-        if self.config.shuffle:
-            random.shuffle(lines)
-        lines = lines[:self.config.num]
-        q.clear()
-        for num,line in enumerate(lines, 1):
-            q.echo("%s of %s" % (num, len(lines)))
-            qst,ans = self._get_qst_ans(line)
-            q.alert(qst.rand)
-            talk(qst.rand, qst.lang.name.short, wait=True)
-            q.alert(ans.rand)
-            talk(ans.rand, ans.lang.name.short, slow=True, wait=True)
-            talk(ans.rand, ans.lang.name.short, slow=True, wait=True)
-            talk(ans.rand, ans.lang.name.short, slow=False, wait=True)
+    @abc.abstractmethod
+    def get_items(self, reviewnum: int, shuffle: bool) -> list[ReviewItem]:
+        pass
 
-    def learn(self):
-        path = get_file(self.config.path)
-        lines = get_lines(path)
-        if self.config.shuffle:
-            random.shuffle(lines)
-        lines = lines[:self.config.num]
-        q.clear()
-        for num,line in enumerate(lines, 1):
-            q.echo("%s of %s" % (num, len(lines)))
-            qst,ans = self._get_qst_ans(line)
-            vld = Practice._get_valid(ans)
-            q.alert(qst.rand)
-            q.alert(ans.rand)
-            talk(qst.rand, qst.lang.name.short)
-            talk(ans.rand, ans.lang.name.short, slow=True)
-            rsp = ""
-            while rsp not in vld:
-                rsp = q.ask_str("").lower().strip()
-            wait()
+    def show_menu(self):
+        q.echo("Menu not implemented")
+
+class SingleFileProvider(ProviderBase):
+    def get_items(self, reviewnum: int, shuffle: bool) -> list[ReviewItem]:
+        pfile = File(self.config.filepath)
+        if not pfile.exists():
+            raise Exception(f"File could not be found: {self.config.filepath}")
+        lines = FileParser.get_valid_lines(pfile.read())
+        samplenum = reviewnum if (reviewnum <= len(lines)) else len(lines)
+        review_lines = random.sample(lines, samplenum) if shuffle else lines[:reviewnum]
+        return [ReviewItem.parse(l, self.config.lang1, self.config.lang2) for l in review_lines]
+
+    def show_menu(self):
+        quit = False
+        def trigger_quit():
+            nonlocal quit
+            quit = True
+        while not quit:
+            note = f"Selected file = {self.config.filepath}"
+            menu = q.Menu()
+            menu.add("a", "List all files", self._show_all_files)
+            menu.add("f", "Filter files by name", self._show_filtered_files)
+            menu.add("q", "Quit selector", trigger_quit)
+            menu.show(header=f"{self.__class__.__name__} Menu", note=note, default="q")
+
+    def _show_all_files(self):
+        dirpath = File(self.config.filepath).parent
+        files = [f for f in self._iterfiles()]
+        path = q.enum_menu(files).show(header="Select File", returns="desc", limit=20)
+        self.config.filepath = File(op.join(dirpath, path))
+
+    def _show_filtered_files(self):
+        term = q.ask_str("Filter term")
+        dirpath = File(self.config.filepath).parent
+        files = [f for f in self._iterfiles() if (term in f)]
+        path = q.enum_menu(files).show(header="Select File", returns="desc", limit=20)
+        self.config.filepath = File(op.join(dirpath, path))
+
+    def _iterfiles(self):
+        currfile = File(self.config.filepath)
+        for f in walkfiles(currfile.parent):
+            if f.endswith(currfile.ext):
+                yield f.name
+
+class MultiFileProvider(ProviderBase):
+    def get_items(self, reviewnum: int, shuffle: bool) -> list[ReviewItem]:
+        lines = []
+        if len(self.config.filepaths) == 0:
+            raise Exception("No founds found")
+        for filepath in self.config.filepaths:
+            pfile = File(filepath)
+            if not pfile.exists():
+                raise Exception(f"File could not be found: {self.config.filepath}")
+            lines += FileParser.get_valid_lines(pfile.read())
+        samplenum = reviewnum if (reviewnum <= len(lines)) else len(lines)
+        review_lines = random.sample(lines, samplenum) if shuffle else lines[:reviewnum]
+        return [ReviewItem.parse(l, self.config.lang1, self.config.lang2) for l in review_lines]
+
+class FileParser(Static):
+    @staticmethod
+    def get_valid_lines(content):
+        lines = []
+        for line in content.splitlines():
+            if FileParser._is_line_valid(line):
+                lines.append(line.strip())
+        return lines
+
+    @staticmethod
+    def _is_line_valid(line):
+        if not line:
+            return False
+        if line.count(";") != 1:
+            return False
+        if line.startswith("//"):
+            return False
+        if line.startswith("#"):
+            return False
+        return True
+
+class LangParser(Static):
+    @staticmethod
+    def get_extra(text: str) -> str:
+        extra = re.findall(r"\(.*?\)", text)
+        return " ".join(extra)
+
+    @staticmethod
+    def get_equivs(text: str) -> list[str]:
+        result = []
+        newtext = LangParser._remove_parentheses(text)
+        for equiv in LangParser._split_equivalents(newtext):
+            result += LangParser._separate_equiv_words(equiv)
+        return result
+
+    @staticmethod
+    def _remove_parentheses(text: str) -> str:
+        return re.sub(r"\([^)]*\)", "", text).strip()
+
+    @staticmethod
+    def _split_equivalents(text: str) -> list[str]:
+        return text.split("/")
+
+    @staticmethod
+    def _separate_equiv_words(text: str) -> list[str]:
+        if "|" not in text:
+            return [text]
+        tokens = []
+        for token in text.strip().split():
+            if "|" in token:
+                tokens.append(LangParser._split_equiv_tokens(token))
+            else:
+                tokens.append([token])
+        results = []
+        for combo in itertools.product(*tokens):
+            results.append(" ".join(combo))
+        return results
+
+    @staticmethod
+    def _split_equiv_tokens(token: str) -> list[str]:
+        equivs = token.split("|")
+        punct_to_add: list[str] = []
+        for char in reversed(equivs[-1]):
+            if char in ",.!?":
+                punct_to_add.insert(0, char)
+        if not punct_to_add:
+            return equivs
+        equivs_with_punct = []
+        for equiv in equivs[:-1]:
+            for char in punct_to_add:
+                equiv += char
+            equivs_with_punct.append(equiv)
+        equivs_with_punct.append(equivs[-1])
+        return equivs_with_punct
+
+class ModeBase(metaclass=abc.ABCMeta):
+    def __init__(self, config, provider):
+        self._config = config
+        self._provider = provider
+        self._review: list[ReviewItem] = []
+
+    @property
+    def config(self):
+        return self._config
+
+    def show_menu(self):
+        quit = False
+        def trigger_quit():
+            nonlocal quit
+            quit = True
+        menu = q.Menu()
+        menu.add("r", "Start review", self.review)
+        menu.add("e", "Edit config", self.config.show_editor)
+        menu.add("i", "Mode info", self.show_info)
+        menu.add("q", "Quit mode", trigger_quit)
+        while not quit:
+            menu.show(header=self.__class__.__name__, default="r")
+
+    def show_info(self):
+        q.info(self.__class__.__doc__ or "NA")
+
+    def review(self):
+        self._review_start()
+        for num, item in enumerate(self._iter_review(), 1):
             q.clear()
             flush_input()
-            talk(ans.rand, ans.lang.name.short, slow=True)
-            q.echo("%s of %s" % (num, len(lines)))
-            ans.lang.hint = len(ans.rand) // 4
-            rsp = ""
-            while rsp not in vld:
-                msg = Practice._get_msg_base(qst) + Practice._get_msg_hint(ans)
-                q.alert(msg)
-                rsp = q.ask_str("").lower().strip()
-                ans.lang.hint += 1
-            q.echo("[CORRECT] " + ans.text)
-            talk(ans.rand, ans.lang.name.short, wait=True)
-            q.clear()
+            q.echo("%s of %s" % (num, self._num_review))
+            self._review_item(item)
+        self._review_end()
+        q.clear()
 
-    def start(self):
-        path = get_file(self.config.path)
-        lines = get_lines(path)
-        random.shuffle(lines)
-        lines = lines[:self.config.num]
-        while True:
-            q.clear()
-            self.miss = set()
-            self.okay = set()
-            for num, line in enumerate(lines, 1):
-                q.echo("%s of %s" % (num, len(lines)))
-                self._ask(line)
-                q.hrule()
-            fmiss = File(self.config.path, MISSED_VOCAB)
-            for miss in self.miss:
-                fmiss.append(miss + "\n")
-            q.echo("Results:")
-            q.echo(f"Correct = {len(self.okay)}")
-            q.echo(f"Missed = {len(self.miss)}")
-            q.hrule()
-            if not q.ask_yesno("Retry?", default=False):
-                break
-            if self.miss and q.ask_yesno("Missed only?", default=True):
-                lines = list(self.miss)
-            if q.ask_yesno("Shuffle?", default=True):
-                random.shuffle(lines)
-                lines = lines[:self.config.num]
+    @property
+    def _num_review(self) -> int:
+        return len(self._review)
 
-    def _get_qst_ans(self, line) -> str:
-        qst = TextInfo(line.split(";")[0], "", self.config.lang1)
-        qst.rand = random.choice(parse_valid(qst.text))
-        ans = TextInfo(line.split(";")[1], "", self.config.lang2)
-        ans.rand = random.choice(parse_valid(ans.text))
-        if self.config.swap:
-            ans,qst = qst,ans
-        return qst,ans
+    def _review_start(self):
+        self._review = self._provider.get_items(self.config.reviewnum, self.config.shuffle)
 
+    def _iter_review(self) -> Generator[ReviewItem, None, None]:
+        for item in self._review:
+            yield item
+
+    def _review_end(self):
+        pass
+
+    @abc.abstractmethod
+    def _review_item(self, item):
+        pass
+
+class PracticeMode(ModeBase):
+    """Quick flashcard-like vocab testing."""
+    def __init__(self, config, provider):
+        super().__init__(config, provider)
+        self._repeat = None
+
+    def _review_start(self):
+        self._missed = set()
+        if self._repeat != None:
+            self._review = self._repeat
+        else:
+            super()._review_start()
+
+    def _review_end(self):
+        q.clear()
+        q.alert(f"Missed {len(self._missed)} items.")
+        self._repeat = None
+        if len(self._missed) == 0:
+            q.pause()
+        elif q.ask_yesno("Repeat missed items?"):
+            self._repeat = self._missed
+            self.review()
+
+    def _get_question_extra_answers(self, item) -> tuple[str, str, list[str]]:
+        if not self.config.to_lang1:
+            question = random.choice(item.lang1_equivs)
+            extra = item.lang1_extra
+            answers = item.lang2_equivs
+            return question, extra, answers
+        else:
+            question = random.choice(item.lang2_equivs)
+            extra = item.lang2_extra
+            answers = item.lang1_equivs
+            return question, extra, answers
+
+    def _review_item(self, item):
+        question, extra, answers = self._get_question_extra_answers(item)
+        q.alert(f"{question} {extra}")
+        correct = False
+        while not correct:
+            response = q.ask_str("")
+            correct = ResponseChecker.is_valid(response, answers)
+            if correct:
+                q.echo("Correct!")
+                time.sleep(0.85)
+            else:
+                q.echo("Incorrect!")
+                q.alert(" (OR) ".join(answers))
+                self._missed.add(item)
+
+class TranslateMode(ModeBase):
+    """The user must listen to a lang2 translation, enter it correctly, then enter the lang1 translation."""
+    def _review_item(self, item):
+        lang2_choice = random.choice(item.lang2_equivs)
+        self._do_listen(item, lang2_choice)
+        self._do_translate(item, lang2_choice)
+
+    def _do_listen(self, item, lang2_choice):
+        Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=False)
+        q.echo(f"(Type the {item.lang2.full} you hear.)")
+        attempts = 0
+        correct = False
+        while not correct:
+            response = q.ask_str("")
+            correct = ResponseChecker.is_valid(response, [lang2_choice])
+            if not correct:
+                Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=False)
+                attempts += 1
+                if attempts >= self.config.listen_attempts_before_reveal:
+                    q.alert(lang2_choice)
+        q.echo("Correct!")
+
+    def _do_translate(self, item, lang2_choice):
+        q.echo(f"(Type the {item.lang1.full} translation.)")
+        Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=False)
+        attempts = 0
+        correct = False
+        while not correct:
+            response = q.ask_str("")
+            correct = ResponseChecker.is_valid(response, item.lang1_equivs)
+            if not correct:
+                attempts += 1
+                if attempts >= self.config.translate_attempts_before_reveal:
+                    q.alert(random.choice(item.lang1_equivs))
+        q.echo("Correct!")
+        Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True)
+
+class ListenMode(ModeBase):
+    """Audio flashcards for review or testing."""
+    def _review_item(self, item):
+        if self.config.lang2_first:
+            self._do_lang2(item)
+        else:
+            self._do_lang1(item)
+        if self.config.pause_between_langs:
+            q.pause()
+        else:
+            time.sleep(self.config.delay_between_langs)
+        if self.config.lang2_first:
+            self._do_lang1(item)
+        else:
+            self._do_lang2(item)
+        if self.config.beep_after_langs:
+            Audio.beep()
+
+    def _do_lang1(self, item):
+        translation = random.choice(item.lang1_equivs)
+        q.alert(translation)
+        if self.config.lang1_repeat:
+            for _ in range(self.config.lang1_repeat):
+                Audio.talk(translation, item.lang1.short, wait=True)
+
+    def _do_lang2(self, item):
+            translation = random.choice(item.lang2_equivs)
+            q.alert(translation)
+            for _ in range(self.config.lang2_repeat_slow):
+                Audio.talk(translation, item.lang2.short, slow=True, wait=True)
+            for _ in range(self.config.lang2_repeat_fast):
+                Audio.talk(translation, item.lang2.short, slow=False, wait=True)
+
+class LearnMode(ModeBase):
+    """The user must type in the displayed lang2 translation, then type it in again from memory."""
+    def _review_item(self, item):
+        lang1_choice = random.choice(item.lang1_equivs)
+        lang2_choice = random.choice(item.lang2_equivs)
+        correct = False
+        while not correct:
+            self._learn(item, lang1_choice, lang2_choice)
+            correct = self._test(item, lang1_choice, lang2_choice)
+
+    def _learn(self, item, lang1_choice, lang2_choice):
+        q.echo(f"(Type the {item.lang2.full} translation.)")
+        q.alert(lang1_choice)
+        if self.config.lang1_talk:
+            Audio.talk(lang1_choice, item.lang1.short)
+        q.alert("> " + lang2_choice)
+        if self.config.lang2_talk:
+            Audio.talk(lang2_choice, item.lang2.short, slow=False)
+            Audio.talk(lang2_choice, item.lang2.short, slow=True)
+        correct = False
+        while not correct:
+            response = q.ask_str("")
+            correct = ResponseChecker.is_valid(response, [lang2_choice])
+        q.echo("Correct!")
+        time.sleep(0.85)
+        Audio.wait_talk()
+
+    def _test(self, item, lang1_choice, lang2_choice) -> bool:
+        q.clear()
+        q.echo(f"(Type the {item.lang2.full} translation.)")
+        correct = False
+        attempts = 0
+        while not correct:
+            Audio.talk(lang2_choice, item.lang2.short, slow=True)
+            response = q.ask_str("")
+            correct = ResponseChecker.is_valid(response, [lang2_choice])
+            if not correct:
+                attempts += 1
+                if attempts >= self.config.max_attempts:
+                    return False
+        q.echo("Correct!")
+        q.alert(lang2_choice)
+        q.alert(lang1_choice)
+        Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True)
+        return True
+
+class ResponseChecker(Static):
     @staticmethod
-    def _get_msg_base(qst: TextInfo) -> str:
-        return (qst.rand + " " + parse_extra(qst.text)).strip()
-
-    @staticmethod
-    def _get_msg_hint(ans: TextInfo) -> str:
-        return " (%s)" % hint(ans.rand, ans.lang.hint)
-
-    @staticmethod
-    def _get_valid_orig(ans: TextInfo) -> List[str]:
-        return parse_valid(ans.text)
-
-    @staticmethod
-    def _get_valid(ans: TextInfo) -> List[str]:
-        ok_orig = Practice._get_valid_orig(ans)
-        ok = [] + ok_orig
-        ok_ascii = []
-        for o in ok:
-            ascii_only = unidecode(o)
-            if ascii_only not in ok:
-                ok_ascii.append(ascii_only)
-        ok += ok_ascii
-        return [Practice._sanitize(i) for i in ok]
+    def is_valid(response: str, valid_answers: list[str]) -> bool:
+        sanitized_response = ResponseChecker._sanitize(response)
+        sanitized_answers = [ResponseChecker._sanitize(a) for a in valid_answers]
+        return sanitized_response in sanitized_answers
 
     @staticmethod
     def _sanitize(txt: str) -> str:
@@ -205,379 +583,80 @@ class Practice(object):
         chars_to_remove = ";,.'?!¿¡"
         for c in chars_to_remove:
             sanitized = sanitized.replace(c, '')
-        return sanitized
+        return unidecode(sanitized)
 
-    def _ask(self, line: str):
-        if not line: return
-        qst,ans = self._get_qst_ans(line)
-        msg = Practice._get_msg_base(qst)
-        if ans.lang.hint or ans.lang.dynamic:
-            if ans.lang.dynamic:
-                Record = Query()
-                results = self.db.search(Record.ln == line)
-                # Get most recent results.
-                num_results = 3
-                results = sorted(results, key=lambda r: r['dt'], reverse=True)[:num_results]
-                oks = [r['ok'] for r in results]
-                while len(oks) < num_results:
-                    oks.append(0.7)
-                ratio = 0
-                if results:
-                    ratio = statistics.mean(oks)
-                ans.lang.hint = dynamic_hintnum(ans.rand, ratio)
-            if ans.lang.hint:
-                msg += Practice._get_msg_hint(ans)
-        talk_qst = callstop(talk)
-        tries = 0
-        while True:
-            q.alert(msg)
-            if qst.lang.talk:
-                talk_qst(qst.rand, qst.lang.name.short)
-            t_start = time.time()
-            rsp = Practice._sanitize(q.ask_str(""))
-            sec = time.time() - t_start
-            vld = Practice._get_valid(ans)
-            record = self._prep_record(line, rsp, qst, ans, sec, tries)
-            closest_orig, _ = guess_similarity(rsp, Practice._get_valid_orig(ans))
-            if rsp in vld:
-                record['ok'] = 1.0
-                q.echo("[CORRECT] " + ans.text)
-                if self.config.record:
-                    self.db.insert(record)
-            else:
-                tries += 1
-                _, record['ok'] = guess_similarity(rsp, vld)
-                q.error(closest_orig)
-                if self.config.record:
-                    self.db.insert(record)
-                if self.config.redo:
-                    continue
-
-            if tries > 0:
-                self.miss.add(line)
-            else:
-                self.okay.add(line)
-            if ans.lang.talk:
-                say, _ = guess_similarity(rsp, Practice._get_valid_orig(ans))
-                talk(say, ans.lang.name.short, wait=True)
-            return
+class Audio(Static):
+    _TALK_LOCK = Lock()
 
     @staticmethod
-    def _prep_record(line, rsp, qst, ans, sec, tries):
-        record = {}
-        record['dt'] = datetime.datetime.now(datetime.UTC).isoformat()
-        record['ln'] = line
-        record['rs'] = rsp
-        record['qt'] = qst.text
-        record['at'] = ans.text
-        record['ql'] = qst.lang.name.short
-        record['al'] = ans.lang.name.short
-        record['ht'] = ans.lang.hint
-        record['tr'] = tries
-        record['sc'] = sec
-        return record
+    def beep():
+        try:
+            import winsound
+            winsound.Beep(300, 850)
+        except:
+            pass
 
-class Util(object):
-    """Provides a CLI utility for vocab practice."""
-    def __init__(self, config):
-        self.config = config
+    @staticmethod
+    def wait_talk():
+        while Audio._TALK_LOCK.locked():
+            time.sleep(0.1)
 
-    def main_menu(self):
-        def start(swap=False):
-            pcfg = PracticeConfig(swap=swap, **related.to_dict(self.config))
-            trycatch(Practice(pcfg).start, rethrow=DEBUG_MODE)()
-        def listen():
-            pcfg = PracticeConfig(swap=False, **related.to_dict(self.config))
-            trycatch(Practice(pcfg).listen, rethrow=DEBUG_MODE)()
-        def learn():
-            pcfg = PracticeConfig(swap=False, **related.to_dict(self.config))
-            trycatch(Practice(pcfg).learn, rethrow=DEBUG_MODE)()
+    @staticmethod
+    def talk(text, lang, slow=False, wait=False):
+        def _talk():
+            """Pronounces the given text in the given language."""
+            with Audio._TALK_LOCK:
+                tmppath = op.join(tempfile.gettempdir(), f"__temp-talk-{randomize(6)}.mp3")
+                tts(text=text, lang=lang, slow=slow).save(tmppath)
+                playsound(tmppath)
+                delete(tmppath)
+        try:
+            t = Thread(target=_talk)
+            t.start()
+            if wait:
+                t.join()
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            q.warn("Could not talk at this time.")
+
+class MainMenu(Static):
+    @staticmethod
+    def _get_provider(config):
+        providername = config.get_default_provider()
+        if not config.has_provider(providername):
+            raise Exception(f"No provider config found for default: {providername}")
+        mapping = {
+            "singlefile": SingleFileProvider,
+            "multifile": MultiFileProvider,
+        }
+        return mapping[providername](config.for_provider(providername))
+
+    @staticmethod
+    def show(cfgpath):
+        config = UtilConfig.from_path(cfgpath)
+        provider = MainMenu._get_provider(config)
+        quit = False
+        def trigger_quit():
+            nonlocal quit
+            quit = True
+        def on_err():
+            q.error("Mode exited early!")
+        def build_mode(mode, name):
+            return lambda: trycatch(mode(config.for_mode(name), provider).show_menu, oncatch=on_err, rethrow=DEBUG_MODE)()
         menu = q.Menu()
-        menu.add("1", f"{self.config.lang1.name.full} to {self.config.lang2.name.full}", start, [False])
-        menu.add("2", f"{self.config.lang2.name.full} to {self.config.lang1.name.full}", start, [True])
-        menu.add("i", "Listen to vocab", listen)
-        menu.add("l", "Learn vocab", learn)
-        menu.add("d", "Delete missed vocab", delete, [op.join(self.config.path, MISSED_VOCAB)])
-        menu.add("c", "Count vocab", count, [self.config.path])
-        menu.add("a", "Sort all files", sort_all, [self.config.path])
-        menu.add("s", "Settings", trycatch(self.settings_menu))
-        menu.main(loop=True)
-
-    def settings_menu(self):
-        def change(s):
-            default = getattr(s.conf, s.name)
-            setattr(s.conf, s.name, s.func(f"{s.name.capitalize()}", default=default))
-        settings = [
-                Setting("record", q.ask_yesno, self.config),
-                Setting("redo", q.ask_yesno, self.config),
-                Setting("num", q.ask_int, self.config),
-                Setting("talk", q.ask_yesno, self.config.lang2),
-                Setting("hint", q.ask_int, self.config.lang2),
-                Setting("dynamic", q.ask_yesno, self.config.lang2)]
-        menu = q.Menu()
-        for i,s in enumerate(settings, 1):
-            menu.add(str(i), s.name.capitalize(), change, [s])
-        menu.add("p", "Print", print, [self.config])
-        menu.main(loop=True)
+        menu.add("l", "Learn mode", build_mode(LearnMode, "learn"))
+        menu.add("i", "Listen mode", build_mode(ListenMode, "listen"))
+        menu.add("t", "Translate mode", build_mode(TranslateMode, "translate"))
+        menu.add("p", "Practice mode", build_mode(PracticeMode, "practice"))
+        menu.add("m", "Provider menu", provider.show_menu)
+        menu.add("q", "Quit", trigger_quit)
+        while not quit:
+            menu.show()
 
 ##==============================================================#
 ## SECTION: Function Definitions                                #
 ##==============================================================#
-
-def parse_extra(text):
-    specialchars = "()"
-    for char in specialchars:
-        text = text.replace(char, f" {char} ")
-    toks = text.split()
-
-    # Include text in parenthesis.
-    included = []
-    include = False
-    for tok in toks:
-        if tok == "(":
-            include = True
-            included.append(tok)
-        elif tok == ")":
-            include = False
-            included.append(tok)
-        else:
-            if include:
-                included.append(tok)
-    return " ".join(included).replace("( ", "(").replace(" )", ")")
-
-def parse_valid(text):
-    """Parses the input formatted text into a list of valid strings."""
-    specialchars = "/()"
-    for char in specialchars:
-        text = text.replace(char, f" {char} ")
-
-    # Exclude text in parenthesis.
-    included = []
-    include = True
-    toks = text.split()
-    for tok in toks:
-        if tok == "(": include = False
-        elif tok == ")": include = True
-        else:
-            if include:
-                included.append(tok)
-
-    # Parse final valid text.
-    valid = []
-    buff = [""]
-    for inc in included:
-        if inc == "/":
-            for i,_ in enumerate(buff):
-                if buff[i]:
-                    valid.append(buff[i].strip())
-            buff = [""]
-        elif "|" in inc:
-            toks = inc.split("|")
-            new_buff = []
-            for p in buff:
-                for t in toks:
-                    new_buff.append(p + t + " ")
-            buff = new_buff
-        else:
-            for i,_ in enumerate(buff):
-                buff[i] += inc + " "
-    for i,_ in enumerate(buff):
-        if buff[i]:
-            valid.append(buff[i].strip())
-    return valid
-
-def guess_similarity(actual, expected):
-    """Compares the given actual word input against a list of expected words
-    and returns the best similarity match as a ratio where 1.0 is correct and
-    0.0 is very incorrect."""
-    max_vocab = expected[0]
-    max_ratio = 0.0
-    for exp in expected:
-        ratio = SequenceMatcher(None, actual, exp).ratio()
-        if ratio > max_ratio:
-            max_vocab = exp
-            max_ratio = ratio
-    return max_vocab, max_ratio
-
-def get_file(dpath):
-    global PREVIOUS_PATH
-    menu = q.Menu()
-    menu.add("f", "Select file")
-    menu.add("r", "Random vocab")
-    if PREVIOUS_PATH:
-        menu.add("p", f"Previous file ({PREVIOUS_PATH.name})")
-    choice = menu.show()
-    fpath = None
-    if "f" == choice:
-        fpath = ask_file(dpath)
-    elif "p" == choice:
-        fpath = PREVIOUS_PATH
-    else:
-        fpath = make_random_file(dpath)
-    PREVIOUS_PATH = Path(fpath)
-    return fpath
-
-def ask_file(dpath, msg="File to review (blank to list)"):
-    """Prompts user for a file to review. Returns the file name."""
-    fname = q.ask_str(msg, blk=True)
-    path = Path(dpath, fname)
-    if not path or not path.isfile():
-        vfiles = [op.basename(f) for f in listdir(dpath) if f.endswith(".txt")]
-        path = q.enum_menu(vfiles).show(returns="desc", limit=20)
-        path = op.join(dpath, path)
-    return path
-
-def wait():
-    while TALK_LOCK.locked():
-        time.sleep(0.1)
-
-def talk(text, lang, slow=False, wait=False):
-    def _talk():
-        """Pronounces the given text in the given language."""
-        with TALK_LOCK:
-            tpath = op.join(tempfile.gettempdir(), f"__temp-talk-{randomize(6)}.mp3")
-            tts(text=text, lang=lang, slow=slow).save(tpath)
-            playsound(tpath)
-            delete(tpath)
-    try:
-        t = Thread(target=_talk)
-        t.start()
-        if wait:
-            t.join()
-    except:
-        q.warn("Could not talk at this time.")
-
-def make_random_file(path, num=20):
-    vocabs = []
-    vfiles = [f for f in listdir(path) if (f.endswith(".txt") and not f.startswith("__"))]
-    while len(vocabs) != num:
-        random.shuffle(vfiles)
-        filenum = random.randrange(len(vfiles))
-        vpath = vfiles[filenum]
-        lines = get_lines(vpath)
-        linenum = random.randrange(len(lines))
-        vocab = lines[linenum]
-        if vocab not in vocabs:
-            vocabs.append(vocab)
-    rpath = op.join(path, RANDOM_VOCAB)
-    File(rpath, del_at_exit=True).write("\n".join(vocabs))
-    return rpath
-
-def sort_all(dirpath):
-    """Alphabetically sort the contents of all found vocabulary txt files in
-    the given directory path."""
-    okay = True
-    for f in listdir(dirpath):
-        if f.endswith(".txt"):
-            okay &= q.status("Sorting `%s`..." % op.basename(f), sort_file, [f])
-    msg = "All files sorted successfully." if okay else "Issue sorting some files!"
-    char = "-" if okay else "!"
-    q.wrap(msg, char=char)
-
-def sort_file(path=None):
-    """Alphabetically sort the contents of the given vocabulary txt file."""
-    if not path:
-        path = ask_file("File to sort")
-    if not path.endswith(".txt"):
-        q.error("Can only sort `.txt` files!")
-        return
-    with open(path) as fi:
-        lines = fi.read().splitlines()
-    sorts = []
-    okay = True
-    for num,line in enumerate(lines):
-        line = line.strip()
-        try:
-            if not line: continue
-            l1,l2 = line.split(";")
-            l1x = ""
-            l2x = ""
-            if l1.find("(") > -1:
-                l1,l1x = l1.split("(")
-                l1 = l1.strip()
-                l1x = " (" + l1x
-            if l2.find("(") > -1:
-                l2,l2x = l2.split("(")
-                l2 = l2.strip()
-                l2x = " (" + l2x
-            l1 = "/".join(sorted(l1.split("/")))
-            l2 = "/".join(sorted(l2.split("/")))
-            sorts.append("%s%s;%s%s" % (l1,l1x,l2,l2x))
-        except:
-            okay = False
-            temp = unicodedata.normalize('NFKD', line).encode('ascii','ignore').strip()
-            q.warn("Issue splitting `%s` line %u: %s" % (path, num, temp))
-            sorts.append(line)
-    with open(path, "w") as fo:
-        for line in sorted(set(sorts)):
-            fo.write(line + "\n")
-    return okay
-
-def hint(vocab, hintnum, skipchars=" /'?¿!.,;"):
-    """Returns the given string with all characters expect the given hint
-    number replaced with an asterisk. The given skip characters will be
-    excluded."""
-    random.seed()
-    idx = []
-    onlychars = vocab.replace(" ", "").replace("'", "").strip()
-    numchars = len(onlychars)
-    while hintnum >= numchars:
-        hintnum -= 1
-    if hintnum < 1:
-        hintnum = 1
-    while len(idx) < hintnum:
-        cidx = random.randrange(0, len(vocab))
-        if vocab[cidx] not in skipchars and cidx not in idx:
-            idx.append(cidx)
-    hint = vocab
-    for i,c in enumerate(vocab):
-        if c in skipchars:
-            continue
-        if i not in idx:
-            hint = subat(hint, i, "*")
-    return hint
-
-def count(path):
-    total = 0
-    for i in listdir(path):
-        try:
-            if not i.endswith(".txt"): continue
-            if i.startswith("__temp"): continue
-            num = len(File(i).readlines())
-            total += num
-            q.echo("%u\t%s" % (num, op.basename(i)))
-        except:
-            pass
-    q.wrap("Total = %u" % (total))
-
-def dynamic_hintnum(vocab, ratio):
-    if ratio > 0.98:
-        return 0
-    if ratio < 0.8:
-        ratio -= 0.2
-    elif ratio < 0.9:
-        ratio -= 0.1
-    if ratio < 0.35:
-        ratio = 0.35
-    onlychars = vocab.replace(" ", "").replace("'", "").strip()
-    numchars = len(onlychars)
-    hintnum = numchars - math.floor(numchars * ratio)
-    return hintnum
-
-def get_lines(path):
-    lines = []
-    for line in File(path).read().splitlines():
-        if not line:
-            continue
-        if line.startswith("//"):
-            continue
-        lines.append(line.strip())
-    return lines
-
-def listdir(path):
-    for _,_,files in os.walk(path):
-        for f in files:
-            yield op.join(path, f)
 
 def flush_input():
     try:
@@ -589,10 +668,8 @@ def flush_input():
         termios.tcflush(sys.stdin, termios.TCIOFLUSH)
 
 def main():
-    cpath = trycatch(lambda: sys.argv[1], oncatch=lambda: "config.yaml")()
-    config = related.to_model(UtilConfig, related.from_yaml(File(cpath).read()))
-    util = Util(config)
-    trycatch(util.main_menu, rethrow=DEBUG_MODE)()
+    cfgpath = "config.yaml" if len(sys.argv) == 1 else sys.argv[1]
+    MainMenu.show(cfgpath)
 
 ##==============================================================#
 ## SECTION: Main Body                                           #

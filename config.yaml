@@ -1,18 +1,33 @@
-lang1:
-    name:
-        short: en
-        full: English
-    talk: false
-    hint: 0
-    dynamic: False
-lang2:
-    name:
-        short: es
-        full: Spanish
-    talk: true
-    hint: 1
-    dynamic: True
-redo: true
-path: ..\..\SpanishVocab\Design
-num: 12
-record: true
+providers:
+    _default: "multifile"
+    _common:
+        lang1:
+            short: en
+            full: English
+        lang2:
+            short: it
+            full: Italian
+    singlefile:
+        filepath: ..\..\ItalianVocab\Design\adjectives.txt
+    multifile:
+        filepaths:
+            - ..\..\ItalianVocab\Design\nouns-food.txt
+            - ..\..\ItalianVocab\Design\nouns-shopping.txt
+modes:
+    _common:
+        reviewnum: 12
+        shuffle: true
+    practice:
+        to_lang1: false
+    learn:
+        hint: 1
+        redo: true
+        lang1_talk: true
+        lang2_talk: true
+    listen:
+        reviewnum: 24
+        lang1: 1
+        lang2_slow: 1
+        lang2_fast: 2
+    translate:
+        reviewnum: 10
