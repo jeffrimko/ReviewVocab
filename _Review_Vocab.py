@@ -687,7 +687,10 @@ def flush_input():
 
 def main():
     cfgpath = "config.yaml" if len(sys.argv) == 1 else sys.argv[1]
-    MainMenu.show(cfgpath)
+    try:
+        MainMenu.show(cfgpath)
+    except KeyboardInterrupt:
+        pass
 
 ##==============================================================#
 ## SECTION: Main Body                                           #
