@@ -89,6 +89,7 @@ class CommonModeConfig:
 @dataclass
 class PracticeModeConfig(CommonModeConfig):
     to_lang1: bool = False
+    min_score: int = 90
 
 @dataclass
 class TranslateModeConfig(CommonModeConfig):
@@ -447,13 +448,18 @@ class PracticeMode(ModeBase):
         correct = False
         while not correct:
             response = q.ask_str("")
-            correct = ResponseChecker.is_valid(response, answers)
+            score = ResponseChecker.get_score(response, answers)
+            correct = score >= self.config.min_score
             if correct:
-                q.echo("Correct!")
-                time.sleep(0.85)
+                q.echo("Correct!" if score == 100 else "Almost correct!")
+                q.echo(" (OR) ".join(answers))
+                if score == 100:
+                    time.sleep(1)
+                else:
+                    q.pause()
             else:
                 q.echo("Incorrect!")
-                q.alert(" (OR) ".join(answers))
+                q.echo(" (OR) ".join(answers))
                 self._missed.add(item)
 
 class TranslateMode(ModeBase):
@@ -555,7 +561,7 @@ class LearnMode(ModeBase):
             response = q.ask_str("")
             correct = ResponseChecker.is_valid(response, [lang2_choice])
         q.echo("Correct!")
-        time.sleep(0.85)
+        time.sleep(1)
         Audio.wait_talk()
 
     def _test(self, item, lang1_choice, lang2_choice) -> bool:
@@ -593,9 +599,9 @@ class ResponseChecker(Static):
 
     @staticmethod
     def _sanitize(txt: str) -> str:
-        sanitized = txt.lower().strip()
+        sanitized = unidecode(txt.lower().strip())
         sanitized = re.sub(r'[^ a-z0-9]', '', sanitized, re.UNICODE)
-        return unidecode(sanitized)
+        return sanitized
 
 class Audio(Static):
     _TALK_LOCK = Lock()
