@@ -21,6 +21,7 @@ from auxly.stringy import randomize
 from dacite import from_dict
 from gtts import gTTS as tts
 from playsound import playsound
+from thefuzz import fuzz
 from unidecode import unidecode
 import qprompt as q
 import yaml
@@ -91,11 +92,10 @@ class PracticeModeConfig(CommonModeConfig):
 
 @dataclass
 class TranslateModeConfig(CommonModeConfig):
-    lang1_repeat: int = 1
-    lang2_repeat_slow: int = 1
-    lang2_repeat_fast: int = 2
+    listen_min_score: int = 90
     listen_attempts_before_reveal: int = 2
     translate_attempts_before_reveal: int = 2
+    translate_min_score: int = 90
 
 @dataclass
 class ListenModeConfig(CommonModeConfig):
@@ -468,15 +468,18 @@ class TranslateMode(ModeBase):
         q.echo(f"(Type the {item.lang2.full} you hear.)")
         attempts = 0
         correct = False
+        score = 0
         while not correct:
             response = q.ask_str("")
-            correct = ResponseChecker.is_valid(response, [lang2_choice])
+            score = ResponseChecker.get_score(response, [lang2_choice])
+            correct = score >= self.config.listen_min_score
             if not correct:
                 Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=False)
                 attempts += 1
                 if attempts >= self.config.listen_attempts_before_reveal:
                     q.alert(lang2_choice)
-        q.echo("Correct!")
+        q.echo("Correct!" if score == 100 else "Almost correct!")
+        q.echo(lang2_choice)
 
     def _do_translate(self, item, lang2_choice):
         q.echo(f"(Type the {item.lang1.full} translation.)")
@@ -485,12 +488,14 @@ class TranslateMode(ModeBase):
         correct = False
         while not correct:
             response = q.ask_str("")
-            correct = ResponseChecker.is_valid(response, item.lang1_equivs)
+            score = ResponseChecker.get_score(response, item.lang1_equivs)
+            correct = score >= self.config.translate_min_score
             if not correct:
                 attempts += 1
                 if attempts >= self.config.translate_attempts_before_reveal:
                     q.alert(random.choice(item.lang1_equivs))
-        q.echo("Correct!")
+        q.echo("Correct!" if score == 100 else "Almost correct!")
+        q.echo(" (OR) ".join(item.lang1_equivs))
         Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True)
 
 class ListenMode(ModeBase):
@@ -574,17 +579,22 @@ class LearnMode(ModeBase):
 
 class ResponseChecker(Static):
     @staticmethod
-    def is_valid(response: str, valid_answers: list[str]) -> bool:
+    def is_valid(response: str, valid_answers: list[str], min_valid_score=100) -> bool:
+        score = ResponseChecker.get_score(response, valid_answers)
+        return score >= min_valid_score
+
+    @staticmethod
+    def get_score(response: str, valid_answers: list[str]) -> int:
+        """Returns correctness as a score, 100 is exactly correct."""
         sanitized_response = ResponseChecker._sanitize(response)
         sanitized_answers = [ResponseChecker._sanitize(a) for a in valid_answers]
-        return sanitized_response in sanitized_answers
+        ratios = [fuzz.ratio(sanitized_response, a) for a in sanitized_answers]
+        return max(ratios)
 
     @staticmethod
     def _sanitize(txt: str) -> str:
         sanitized = txt.lower().strip()
-        chars_to_remove = ";,.'?!¿¡"
-        for c in chars_to_remove:
-            sanitized = sanitized.replace(c, '')
+        sanitized = re.sub(r'[^ a-z0-9]', '', sanitized, re.UNICODE)
         return unidecode(sanitized)
 
 class Audio(Static):

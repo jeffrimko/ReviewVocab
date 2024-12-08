@@ -12,7 +12,7 @@ Python 3.10+ is required. Additional third-party libraries are required and can 
 ## Usage
 Run the `_Review_Vocab.py` to show the main menu. A config file can be provided as an argument otherwise `config.yaml` will be used by default.
 
-The config file has configuration for "providers" and "modes". Providers are code objects that provide vocab review items for the modes. The modes are interactive ways to review vocab.
+The config file has configuration for "providers" and "modes". Providers are code objects that provide vocab review items for the modes. Modes are interactive ways to review vocab.
 
 For file providers, a set of vocab files are required. Example English/Italian vocab files are provided in [ItalianVocab](https://github.com/jeffrimko/ItalianVocab).
 

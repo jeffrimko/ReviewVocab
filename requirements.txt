@@ -1,7 +1,8 @@
+PyYAML
 auxly
 dacite
 gTTS
 playsound
 qprompt
+thefuzz
 unidecode
-PyYAML
