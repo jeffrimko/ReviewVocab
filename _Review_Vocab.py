@@ -105,6 +105,8 @@ class ListenModeConfig(CommonModeConfig):
     lang2_repeat_fast: int = 2
     delay_between_langs: float = 1.7
     pause_between_langs: bool = False
+    delay_after_langs: float = 0.1
+    pause_after_langs: bool = False
     beep_after_langs: bool = True
     lang2_first: bool = False
 
@@ -519,6 +521,10 @@ class ListenMode(ModeBase):
             self._do_lang1(item)
         else:
             self._do_lang2(item)
+        if self.config.pause_after_langs:
+            q.pause()
+        else:
+            time.sleep(self.config.delay_after_langs)
         if self.config.beep_after_langs:
             Audio.beep()
 
