@@ -5,7 +5,7 @@
 from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from threading import Thread, Lock
-from typing import Any, Generator, Optional, Literal
+from typing import Any, Generator, Optional
 import abc
 import itertools
 import os.path as op
@@ -30,9 +30,7 @@ import yaml
 ## SECTION: Global Definitions                                  #
 ##==============================================================#
 
-DEBUG_MODE = True
-
-LangNum = Literal["lang1", "lang2"]
+DEBUG_MODE = False
 
 ##==============================================================#
 ## SECTION: Class Definitions                                   #
@@ -114,8 +112,8 @@ class LearnModeConfig(CommonModeConfig):
 
 @dataclass
 class RapidModeConfig(CommonModeConfig):
+    show_lang1_first: bool = True
     output_file: str = ""
-    show_first: LangNum = "lang1"
 
 @dataclass
 class ModesConfig:
@@ -612,7 +610,7 @@ class RapidMode(ModeBase):
     def _review_item(self, item):
         lang1_choice = random.choice(item.lang1_equivs)
         lang2_choice = random.choice(item.lang2_equivs)
-        first, second = (lang1_choice, lang2_choice) if self.config.show_first == "lang1" else (lang2_choice, lang1_choice)
+        first, second = (lang1_choice, lang2_choice) if self.config.show_lang1_first else (lang2_choice, lang1_choice)
         q.alert(first)
         q.pause()
         self.reset_banner()
