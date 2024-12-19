@@ -5,7 +5,7 @@
 from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from threading import Thread, Lock
-from typing import Any, Generator, Optional
+from typing import Any, Generator, Optional, Literal
 import abc
 import itertools
 import os.path as op
@@ -30,7 +30,9 @@ import yaml
 ## SECTION: Global Definitions                                  #
 ##==============================================================#
 
-DEBUG_MODE = False
+DEBUG_MODE = True
+
+LangNum = Literal["lang1", "lang2"]
 
 ##==============================================================#
 ## SECTION: Class Definitions                                   #
@@ -100,15 +102,9 @@ class TranslateModeConfig(CommonModeConfig):
 
 @dataclass
 class ListenModeConfig(CommonModeConfig):
-    lang1_repeat: int = 1
-    lang2_repeat_slow: int = 1
-    lang2_repeat_fast: int = 2
-    delay_between_langs: float = 1.7
-    pause_between_langs: bool = False
-    delay_after_langs: float = 0.1
-    pause_after_langs: bool = False
-    beep_after_langs: bool = True
-    lang2_first: bool = False
+    cmds: str = "lang1 slow2 fast2 beep"
+    delay_between_cmds: float = 0.1
+    output_file: str = ""
 
 @dataclass
 class LearnModeConfig(CommonModeConfig):
@@ -117,12 +113,18 @@ class LearnModeConfig(CommonModeConfig):
     max_attempts: int = 2
 
 @dataclass
+class RapidModeConfig(CommonModeConfig):
+    output_file: str = ""
+    show_first: LangNum = "lang1"
+
+@dataclass
 class ModesConfig:
     _common: CommonModeConfig = field(default_factory=CommonModeConfig)
     listen: ListenModeConfig = field(default_factory=ListenModeConfig)
     learn: LearnModeConfig = field(default_factory=LearnModeConfig)
     translate: TranslateModeConfig = field(default_factory=TranslateModeConfig)
     practice: PracticeModeConfig = field(default_factory=PracticeModeConfig)
+    rapid: RapidModeConfig = field(default_factory=RapidModeConfig)
 
 @dataclass
 class UtilConfig:
@@ -272,7 +274,7 @@ class MultiFileProvider(ProviderBase):
         for filepath in self.config.filepaths:
             pfile = File(filepath)
             if not pfile.exists():
-                raise Exception(f"File could not be found: {self.config.filepath}")
+                raise Exception(f"File could not be found: {filepath}")
             lines += FileParser.get_valid_lines(pfile.read())
         samplenum = reviewnum if (reviewnum <= len(lines)) else len(lines)
         review_lines = random.sample(lines, samplenum) if shuffle else lines[:reviewnum]
@@ -358,6 +360,7 @@ class ModeBase(metaclass=abc.ABCMeta):
         self._config = config
         self._provider = provider
         self._review: list[ReviewItem] = []
+        self._curr_num = 0
 
     @property
     def config(self):
@@ -384,15 +387,19 @@ class ModeBase(metaclass=abc.ABCMeta):
     def review(self):
         self._review_start()
         for num, item in enumerate(self._iter_review(), 1):
-            q.clear()
-            flush_input()
-            q.echo("%s of %s" % (num, self._num_review))
+            self._curr_num = num
+            self.reset_banner()
             self._review_item(item)
         self._review_end()
         q.clear()
 
+    def reset_banner(self):
+        q.clear()
+        flush_input()
+        q.echo("%s of %s" % (self._curr_num, self.num_review))
+
     @property
-    def _num_review(self) -> int:
+    def num_review(self) -> int:
         return len(self._review)
 
     def _review_start(self):
@@ -509,31 +516,42 @@ class TranslateMode(ModeBase):
 class ListenMode(ModeBase):
     """Audio flashcards for review or testing."""
     def _review_item(self, item):
-        if self.config.lang2_first:
-            self._do_lang2(item)
-        else:
-            self._do_lang1(item)
-        if self.config.pause_between_langs:
-            q.pause()
-        else:
-            time.sleep(self.config.delay_between_langs)
-        if self.config.lang2_first:
-            self._do_lang1(item)
-        else:
-            self._do_lang2(item)
-        if self.config.pause_after_langs:
-            q.pause()
-        else:
-            time.sleep(self.config.delay_after_langs)
-        if self.config.beep_after_langs:
-            Audio.beep()
+        if self.config.output_file:
+            File(self.config.output_file).appendline(item.line)
+        lang1_choice = random.choice(item.lang1_equivs)
+        lang2_choice = random.choice(item.lang2_equivs)
+        lang1_shown = False
+        lang2_shown = False
+        cmds = self.config.cmds.split()
+        for cmd in cmds:
+            if cmd == "lang1":
+                if not lang1_shown:
+                    q.alert(lang1_choice)
+                    lang1_shown = True
+                Audio.talk(lang1_choice, item.lang1.short, wait=True)
+            elif cmd == "fast2":
+                if not lang2_shown:
+                    q.alert(lang2_choice)
+                    lang2_shown = True
+                Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True)
+            elif cmd == "slow2":
+                if not lang2_shown:
+                    q.alert(lang2_choice)
+                    lang2_shown = True
+                Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=True)
+            elif cmd.startswith("delay="):
+                delay = float(cmd.split("=")[1])
+                time.sleep(delay)
+            elif cmd == "pause":
+                q.pause()
+            elif cmd == "beep":
+                Audio.beep()
+            time.sleep(self.config.delay_between_cmds)
 
     def _do_lang1(self, item):
         translation = random.choice(item.lang1_equivs)
         q.alert(translation)
-        if self.config.lang1_repeat:
-            for _ in range(self.config.lang1_repeat):
-                Audio.talk(translation, item.lang1.short, wait=True)
+        Audio.talk(translation, item.lang1.short, wait=True)
 
     def _do_lang2(self, item):
             translation = random.choice(item.lang2_equivs)
@@ -588,6 +606,23 @@ class LearnMode(ModeBase):
         q.alert(lang1_choice)
         Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True)
         return True
+
+class RapidMode(ModeBase):
+    """Rapidly review vocab."""
+    def _review_item(self, item):
+        lang1_choice = random.choice(item.lang1_equivs)
+        lang2_choice = random.choice(item.lang2_equivs)
+        first, second = (lang1_choice, lang2_choice) if self.config.show_first == "lang1" else (lang2_choice, lang1_choice)
+        q.alert(first)
+        q.pause()
+        self.reset_banner()
+        q.alert(first)
+        q.echo(">>> " + second)
+        if self.config.output_file:
+            if q.ask_yesno("Add to output file?", default=False):
+                File(self.config.output_file).appendline(item.line)
+        else:
+            q.pause()
 
 class ResponseChecker(Static):
     @staticmethod
@@ -673,6 +708,7 @@ class MainMenu(Static):
         menu.add("i", "Listen mode", build_mode(ListenMode, "listen"))
         menu.add("t", "Translate mode", build_mode(TranslateMode, "translate"))
         menu.add("p", "Practice mode", build_mode(PracticeMode, "practice"))
+        menu.add("r", "Rapid mode", build_mode(RapidMode, "rapid"))
         menu.add("m", "Provider menu", provider.show_menu)
         menu.add("q", "Quit", trigger_quit)
         while not quit:
