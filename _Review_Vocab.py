@@ -3,6 +3,7 @@
 ##==============================================================#
 
 from __future__ import annotations
+from collections import namedtuple
 from dataclasses import asdict, dataclass, field
 from threading import Thread, Lock
 from typing import Any, Generator, Optional
@@ -117,6 +118,7 @@ class RapidModeConfig(CommonModeConfig):
 
 @dataclass
 class ModesConfig:
+    _default: str = "listen"
     _common: CommonModeConfig = field(default_factory=CommonModeConfig)
     listen: ListenModeConfig = field(default_factory=ListenModeConfig)
     learn: LearnModeConfig = field(default_factory=LearnModeConfig)
@@ -151,7 +153,10 @@ class UtilConfig:
             cfgdict.update(overrides)
         return from_dict(data_class=type(mode), data=cfgdict)
 
-    def get_default_provider(self) -> bool:
+    def get_default_mode(self) -> str:
+        return self.modes._default
+
+    def get_default_provider(self) -> str:
         return self.providers._default
 
     def has_provider(self, providername: str) -> bool:
@@ -527,6 +532,10 @@ class ListenMode(ModeBase):
                     q.alert(lang1_choice)
                     lang1_shown = True
                 Audio.talk(lang1_choice, item.lang1.short, wait=True)
+            elif cmd == "show1":
+                if not lang1_shown:
+                    q.alert(lang1_choice)
+                    lang1_shown = True
             elif cmd == "fast2":
                 if not lang2_shown:
                     q.alert(lang2_choice)
@@ -693,6 +702,15 @@ class MainMenu(Static):
     def show(cfgpath):
         config = UtilConfig.from_path(cfgpath)
         provider = MainMenu._get_provider(config)
+        MapEntry = namedtuple('MapEntry', ['char', 'mode'])
+        mode_map = {
+            'learn': MapEntry("l", LearnMode),
+            'listen': MapEntry("i", ListenMode),
+            'translate': MapEntry("t", TranslateMode),
+            'practice': MapEntry("p", PracticeMode),
+            'rapid': MapEntry("r", RapidMode),
+        }
+        dftmode = mode_map[config.get_default_mode()].char
         quit = False
         def trigger_quit():
             nonlocal quit
@@ -702,15 +720,12 @@ class MainMenu(Static):
         def build_mode(mode, name):
             return lambda: trycatch(mode(config.for_mode(name), provider).show_menu, oncatch=on_err, rethrow=DEBUG_MODE)()
         menu = q.Menu()
-        menu.add("l", "Learn mode", build_mode(LearnMode, "learn"))
-        menu.add("i", "Listen mode", build_mode(ListenMode, "listen"))
-        menu.add("t", "Translate mode", build_mode(TranslateMode, "translate"))
-        menu.add("p", "Practice mode", build_mode(PracticeMode, "practice"))
-        menu.add("r", "Rapid mode", build_mode(RapidMode, "rapid"))
+        for name,entry in mode_map.items():
+            menu.add(entry.char, f"{name.title()} mode", build_mode(entry.mode, name))
         menu.add("m", "Provider menu", provider.show_menu)
         menu.add("q", "Quit", trigger_quit)
         while not quit:
-            menu.show()
+            menu.show(default=dftmode)
 
 ##==============================================================#
 ## SECTION: Function Definitions                                #
