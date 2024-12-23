@@ -104,6 +104,7 @@ class ListenModeConfig(CommonModeConfig):
     cmds: str = "lang1 slow2 fast2 beep"
     delay_between_cmds: float = 0.1
     output_file: str = ""
+    repeat_file: str = ""
 
 @dataclass
 class LearnModeConfig(CommonModeConfig):
@@ -523,9 +524,13 @@ class ListenMode(ModeBase):
             File(self.config.output_file).appendline(item.line)
         lang1_choice = random.choice(item.lang1_equivs)
         lang2_choice = random.choice(item.lang2_equivs)
+        cmds = self.config.cmds.split()
+        while cmds:
+            cmds = self._run_cmds(cmds, item, lang1_choice, lang2_choice)
+
+    def _run_cmds(self, cmds, item, lang1_choice, lang2_choice):
         lang1_shown = False
         lang2_shown = False
-        cmds = self.config.cmds.split()
         for cmd in cmds:
             if cmd == "lang1":
                 if not lang1_shown:
@@ -551,9 +556,16 @@ class ListenMode(ModeBase):
                 time.sleep(delay)
             elif cmd == "pause":
                 q.pause()
+            elif cmd == "askrepeat":
+                if q.ask_yesno("Repeat?", default=False):
+                    self.reset_banner()
+                    if self.config.repeat_file:
+                        File(self.config.repeat_file).appendline(item.line)
+                    return cmds
             elif cmd == "beep":
                 Audio.beep()
             time.sleep(self.config.delay_between_cmds)
+        return []
 
     def _do_lang1(self, item):
         translation = random.choice(item.lang1_equivs)
@@ -669,11 +681,15 @@ class Audio(Static):
 
     @staticmethod
     def talk(text, lang, slow=False, wait=False):
+        chars_to_strip = ["'’‘"]
+        sanitized_text = text.replace('"', '').replace('“', '').replace('”', '')
+        for char in chars_to_strip:
+            sanitized_text = sanitized_text.strip(char)
         def _talk():
             """Pronounces the given text in the given language."""
             with Audio._TALK_LOCK:
                 tmppath = op.join(tempfile.gettempdir(), f"__temp-talk-{randomize(6)}.mp3")
-                tts(text=text, lang=lang, slow=slow).save(tmppath)
+                tts(text=sanitized_text, lang=lang, slow=slow).save(tmppath)
                 playsound(tmppath)
                 delete(tmppath)
         try:
