@@ -33,7 +33,7 @@ import yaml
 ## SECTION: Global Definitions                                  #
 ##==============================================================#
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 ##==============================================================#
 ## SECTION: Class Definitions                                   #
@@ -103,7 +103,7 @@ class TranslateModeConfig(CommonModeConfig):
 
 @dataclass
 class ListenModeConfig(CommonModeConfig):
-    cmds: str = "lang1 slow2 fast2 beep"
+    cmds: str = "talk1 slow2 fast2 beep"
     delay_between_cmds: float = 0.1
     output_file: str = ""
     repeat_file: str = ""
@@ -534,33 +534,23 @@ class ListenMode(ModeBase):
         lang1_shown = False
         lang2_shown = False
         for cmd in cmds:
-            if cmd == "lang1":
+            if cmd == "talk1" or cmd == "show1":
+                should_talk = cmd == "talk1"
                 if not lang1_shown:
                     q.alert(lang1_choice)
                     lang1_shown = True
-                Audio.talk(lang1_choice, item.lang1.short, wait=True)
-            elif cmd == "show1":
-                if not lang1_shown:
-                    q.alert(lang1_choice)
-                    lang1_shown = True
-            elif cmd.startswith("fast2"):
+                if should_talk:
+                    Audio.talk(lang1_choice, item.lang1.short, wait=True)
+            elif cmd.startswith("fast2") or cmd.startswith("slow2"):
+                slow = cmd.startswith("slow")
                 if not lang2_shown:
                     q.alert(lang2_choice)
                     lang2_shown = True
                 speed = 1.0
                 if "=" in cmd:
-                    cmd,speedstr = cmd.split("=")
+                    _,speedstr = cmd.split("=")
                     speed = float(speedstr)
-                Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True, speed=speed)
-            elif cmd.startswith("slow2"):
-                if not lang2_shown:
-                    q.alert(lang2_choice)
-                    lang2_shown = True
-                speed = 1.0
-                if "=" in cmd:
-                    cmd,speedstr = cmd.split("=")
-                    speed = float(speedstr)
-                Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=True, speed=speed)
+                Audio.talk(lang2_choice, item.lang2.short, slow=slow, wait=True, speed=speed)
             elif cmd.startswith("delay="):
                 delay = float(cmd.split("=")[1])
                 time.sleep(delay)
