@@ -19,7 +19,7 @@ import time
 
 from auxly import trycatch
 from auxly.filesys import File, walkfiles
-from auxly.shell import silent
+from auxly.shell import has, silent
 from auxly.stringy import randomize
 from dacite import from_dict
 from gtts import gTTS as tts
@@ -33,7 +33,11 @@ import yaml
 ## SECTION: Global Definitions                                  #
 ##==============================================================#
 
+#: Allow exceptions to be thrown, otherwise failures are silent.
 DEBUG_MODE = False
+
+#: Default talk cache option unless one is explicitly provided.
+CACHE_TALK = True
 
 ##==============================================================#
 ## SECTION: Class Definitions                                   #
@@ -530,26 +534,32 @@ class ListenMode(ModeBase):
         while cmds:
             cmds = self._run_cmds(cmds, item, lang1_choice, lang2_choice)
 
+    @staticmethod
+    def _get_speed(cmd) -> float:
+        speed = 1.0
+        if "=" in cmd:
+            _,speedstr = cmd.split("=")
+            speed = float(speedstr)
+        return speed
+
     def _run_cmds(self, cmds, item, lang1_choice, lang2_choice):
         lang1_shown = False
         lang2_shown = False
         for cmd in cmds:
-            if cmd == "talk1" or cmd == "show1":
-                should_talk = cmd == "talk1"
+            if cmd.startswith("talk1") or cmd == "show1":
+                should_talk = cmd.startswith("talk1")
                 if not lang1_shown:
                     q.alert(lang1_choice)
                     lang1_shown = True
                 if should_talk:
-                    Audio.talk(lang1_choice, item.lang1.short, wait=True)
+                    speed = ListenMode._get_speed(cmd)
+                    Audio.talk(lang1_choice, item.lang1.short, wait=True, speed=speed)
             elif cmd.startswith("fast2") or cmd.startswith("slow2"):
                 slow = cmd.startswith("slow")
                 if not lang2_shown:
                     q.alert(lang2_choice)
                     lang2_shown = True
-                speed = 1.0
-                if "=" in cmd:
-                    _,speedstr = cmd.split("=")
-                    speed = float(speedstr)
+                speed = ListenMode._get_speed(cmd)
                 Audio.talk(lang2_choice, item.lang2.short, slow=slow, wait=True, speed=speed)
             elif cmd.startswith("delay="):
                 delay = float(cmd.split("=")[1])
@@ -679,6 +689,7 @@ class Audio(Static):
         while Audio._TALK_LOCK.locked():
             time.sleep(0.1)
 
+    @staticmethod
     def _sanitize_for_talk(text: str) -> str:
         chars_to_strip = ["'’‘"]
         sanitized_text = text.replace('"', '').replace('“', '').replace('”', '')
@@ -687,7 +698,21 @@ class Audio(Static):
         return sanitized_text
 
     @staticmethod
-    def talk(text, lang, slow=False, wait=False, speed=1, cache=True):
+    def _adjust_speed(talkfile, speed):
+        temptalk = File(f"{talkfile}.tmp")
+        talkfile.move(temptalk)
+        try:
+            if has("ffmpeg"):
+                cmd = f'ffmpeg -i "{temptalk}" -vn -b:a 192k -filter:a "atempo={speed}" "{talkfile}"'
+                silent(cmd)
+        except:
+            q.warn(f"Could not adjust speed of file: {talkfile}")
+        temptalk.delete()
+
+    @staticmethod
+    def talk(text, lang, slow=False, wait=False, speed=1, cache: Optional[bool] = None):
+        if cache is None:
+            cache = CACHE_TALK
         def _talk(talkfile):
             """Pronounces the given text in the given language."""
             with Audio._TALK_LOCK:
@@ -701,11 +726,7 @@ class Audio(Static):
             talkfile.make()
             tts(text=sanitized_text, lang=lang, slow=slow).save(talkfile)
             if not isclose(speed, 1):
-                temptalk = File(f"{talkfile}.tmp")
-                talkfile.move(temptalk)
-                cmd = f'ffmpeg -i "{temptalk}" -vn -b:a 192k -filter:a "atempo={speed}" "{talkfile}"'
-                silent(cmd)
-                temptalk.delete()
+                Audio._adjust_speed(talkfile, speed)
         try:
             t = Thread(target=_talk, args=(talkfile,))
             t.start()
