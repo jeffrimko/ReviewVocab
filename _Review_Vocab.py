@@ -5,6 +5,7 @@
 from __future__ import annotations
 from collections import namedtuple
 from dataclasses import asdict, dataclass, field
+from math import isclose
 from threading import Thread, Lock
 from typing import Any, Generator, Optional
 import abc
@@ -17,7 +18,8 @@ import tempfile
 import time
 
 from auxly import trycatch
-from auxly.filesys import File, delete, walkfiles
+from auxly.filesys import File, walkfiles
+from auxly.shell import silent
 from auxly.stringy import randomize
 from dacite import from_dict
 from gtts import gTTS as tts
@@ -31,7 +33,7 @@ import yaml
 ## SECTION: Global Definitions                                  #
 ##==============================================================#
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 ##==============================================================#
 ## SECTION: Class Definitions                                   #
@@ -541,16 +543,24 @@ class ListenMode(ModeBase):
                 if not lang1_shown:
                     q.alert(lang1_choice)
                     lang1_shown = True
-            elif cmd == "fast2":
+            elif cmd.startswith("fast2"):
                 if not lang2_shown:
                     q.alert(lang2_choice)
                     lang2_shown = True
-                Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True)
-            elif cmd == "slow2":
+                speed = 1.0
+                if "=" in cmd:
+                    cmd,speedstr = cmd.split("=")
+                    speed = float(speedstr)
+                Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True, speed=speed)
+            elif cmd.startswith("slow2"):
                 if not lang2_shown:
                     q.alert(lang2_choice)
                     lang2_shown = True
-                Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=True)
+                speed = 1.0
+                if "=" in cmd:
+                    cmd,speedstr = cmd.split("=")
+                    speed = float(speedstr)
+                Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=True, speed=speed)
             elif cmd.startswith("delay="):
                 delay = float(cmd.split("=")[1])
                 time.sleep(delay)
@@ -679,21 +689,35 @@ class Audio(Static):
         while Audio._TALK_LOCK.locked():
             time.sleep(0.1)
 
-    @staticmethod
-    def talk(text, lang, slow=False, wait=False):
+    def _sanitize_for_talk(text: str) -> str:
         chars_to_strip = ["'’‘"]
         sanitized_text = text.replace('"', '').replace('“', '').replace('”', '')
         for char in chars_to_strip:
             sanitized_text = sanitized_text.strip(char)
-        def _talk():
+        return sanitized_text
+
+    @staticmethod
+    def talk(text, lang, slow=False, wait=False, speed=1, cache=True):
+        def _talk(talkfile):
             """Pronounces the given text in the given language."""
             with Audio._TALK_LOCK:
-                tmppath = op.join(tempfile.gettempdir(), f"__temp-talk-{randomize(6)}.mp3")
-                tts(text=sanitized_text, lang=lang, slow=slow).save(tmppath)
-                playsound(tmppath)
-                delete(tmppath)
+                playsound(talkfile, block=True)
+                if not cache:
+                    talkfile.delete()
+        sanitized_text = Audio._sanitize_for_talk(text)
+        sanitized_hash = str(hash(f"{lang}-{slow}-{speed}-{sanitized_text}")).replace("-", "d")
+        talkfile = File(tempfile.gettempdir(), "ReviewVocab", "talk", lang, f"__temp-talk-{sanitized_hash}.mp3",)
+        if not talkfile.exists():
+            talkfile.make()
+            tts(text=sanitized_text, lang=lang, slow=slow).save(talkfile)
+            if not isclose(speed, 1):
+                temptalk = File(f"{talkfile}.tmp")
+                talkfile.move(temptalk)
+                cmd = f'ffmpeg -i "{temptalk}" -vn -b:a 192k -filter:a "atempo={speed}" "{talkfile}"'
+                silent(cmd)
+                temptalk.delete()
         try:
-            t = Thread(target=_talk)
+            t = Thread(target=_talk, args=(talkfile,))
             t.start()
             if wait:
                 t.join()
