@@ -396,13 +396,14 @@ class ModeBase(metaclass=abc.ABCMeta):
         q.info(self.__class__.__doc__ or "NA")
 
     def review(self):
-        self._review_start()
-        for num, item in enumerate(self._iter_review(), 1):
-            self._curr_num = num
-            self.reset_banner()
-            self._review_item(item)
-        self._review_end()
-        q.clear()
+        with keep.presenting():
+            self._review_start()
+            for num, item in enumerate(self._iter_review(), 1):
+                self._curr_num = num
+                self.reset_banner()
+                self._review_item(item)
+            self._review_end()
+            q.clear()
 
     def reset_banner(self):
         q.clear()
@@ -795,8 +796,7 @@ def flush_input():
 def main():
     cfgpath = "config.yaml" if len(sys.argv) == 1 else sys.argv[1]
     try:
-        with keep.presenting():
-            MainMenu.show(cfgpath)
+        MainMenu.show(cfgpath)
     except KeyboardInterrupt:
         pass
 
