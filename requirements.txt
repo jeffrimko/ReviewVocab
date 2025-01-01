@@ -6,3 +6,4 @@ playsound
 qprompt
 thefuzz
 unidecode
+wakepy

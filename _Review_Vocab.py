@@ -26,6 +26,7 @@ from gtts import gTTS as tts
 from playsound import playsound
 from thefuzz import fuzz
 from unidecode import unidecode
+from wakepy import keep
 import qprompt as q
 import yaml
 
@@ -794,7 +795,8 @@ def flush_input():
 def main():
     cfgpath = "config.yaml" if len(sys.argv) == 1 else sys.argv[1]
     try:
-        MainMenu.show(cfgpath)
+        with keep.presenting():
+            MainMenu.show(cfgpath)
     except KeyboardInterrupt:
         pass
 
