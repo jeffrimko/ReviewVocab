@@ -625,7 +625,7 @@ class LearnMode(ModeBase):
         correct = False
         attempts = 0
         while not correct:
-            Audio.talk(lang2_choice, item.lang2.short, slow=True)
+            Audio.talk(lang2_choice, item.lang2.short, slow=True, speed=0.9)
             response = q.ask_str("")
             correct = ResponseChecker.is_valid(response, [lang2_choice])
             if not correct:
@@ -635,7 +635,9 @@ class LearnMode(ModeBase):
         q.echo("Correct!")
         q.alert(lang2_choice)
         q.alert(lang1_choice)
-        Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True)
+        Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=True, speed=0.9)
+        Audio.talk(lang1_choice, item.lang1.short, slow=False, wait=True)
+        Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=True)
         return True
 
 class RapidMode(ModeBase):
