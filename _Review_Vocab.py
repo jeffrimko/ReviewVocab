@@ -98,6 +98,7 @@ class CommonModeConfig:
 class PracticeModeConfig(CommonModeConfig):
     to_lang1: bool = False
     min_score: int = 90
+    missed_file: str = ""
 
 @dataclass
 class TranslateModeConfig(CommonModeConfig):
@@ -482,6 +483,8 @@ class PracticeMode(ModeBase):
                 q.echo("Incorrect!")
                 q.echo(" (OR) ".join(answers))
                 self._missed.add(item)
+                if self.config.missed_file:
+                    File(self.config.missed_file).appendline(item.line)
 
 class TranslateMode(ModeBase):
     """The user must listen to a lang2 translation, enter it correctly, then enter the lang1 translation."""
