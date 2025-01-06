@@ -187,9 +187,11 @@ class UtilConfig:
 class ReviewItem:
     line: str
     lang1: LanguageName
+    lang1_choice: str
     lang1_equivs: list[str]
     lang1_extra: str
     lang2: LanguageName
+    lang2_choice: str
     lang2_equivs: list[str]
     lang2_extra: str
     def __hash__(self):
@@ -197,13 +199,17 @@ class ReviewItem:
 
     @staticmethod
     def parse(line: str, lang1: LanguageName, lang2: LanguageName):
+        lang1_equivs = ReviewItem._get_equivs(line, 1)
+        lang2_equivs = ReviewItem._get_equivs(line, 2)
         return ReviewItem(
             line,
             lang1,
-            ReviewItem._get_equivs(line, 1),
+            random.choice(lang1_equivs),
+            lang1_equivs,
             ReviewItem._get_extra(line, 1),
             lang2,
-            ReviewItem._get_equivs(line, 2),
+            random.choice(lang2_equivs),
+            lang2_equivs,
             ReviewItem._get_extra(line, 2),
         )
 
@@ -490,16 +496,15 @@ class PracticeMode(ModeBase):
 class TranslateMode(ModeBase):
     """The user must listen to a lang2 translation, enter it correctly, then enter the lang1 translation."""
     def _review_item(self, item):
-        lang2_choice = random.choice(item.lang2_equivs)
-        self._do_listen(item, lang2_choice)
+        self._do_listen(item)
         if not self.config.skip_translate:
-            self._do_translate(item, lang2_choice)
+            self._do_translate(item)
         else:
-            Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=False)
+            Audio.talk(item.lang2_choice, item.lang2.short, slow=False, wait=False)
             q.pause()
 
-    def _do_listen(self, item, lang2_choice):
-        Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=False)
+    def _do_listen(self, item):
+        Audio.talk(item.lang2_choice, item.lang2.short, slow=False, wait=False)
         q.echo(f"(Type the {item.lang2.full} you hear.)")
         attempts = 0
         correct = False
@@ -507,20 +512,20 @@ class TranslateMode(ModeBase):
         while not correct:
             response = q.ask_str("")
             if response:
-                score = ResponseChecker.get_score(response, [lang2_choice])
+                score = ResponseChecker.get_score(response, [item.lang2_choice])
                 correct = score >= self.config.listen_min_score
                 if not correct:
                     attempts += 1
                     if attempts >= self.config.listen_attempts_before_reveal:
-                        q.alert(lang2_choice)
+                        q.alert(item.lang2_choice)
             if not correct:
-                Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=False)
+                Audio.talk(item.lang2_choice, item.lang2.short, slow=True, wait=False)
         q.echo("Correct!" if score == 100 else "Almost correct!")
-        q.echo(lang2_choice)
+        q.echo(item.lang2_choice)
 
-    def _do_translate(self, item, lang2_choice):
+    def _do_translate(self, item):
         q.echo(f"(Type the {item.lang1.full} translation.)")
-        Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=False)
+        Audio.talk(item.lang2_choice, item.lang2.short, slow=False, wait=False)
         attempts = 0
         correct = False
         while not correct:
@@ -533,18 +538,16 @@ class TranslateMode(ModeBase):
                     q.alert(random.choice(item.lang1_equivs))
         q.echo("Correct!" if score == 100 else "Almost correct!")
         q.echo(" (OR) ".join(item.lang1_equivs))
-        Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=True)
+        Audio.talk(item.lang2_choice, item.lang2.short, slow=False, wait=True)
 
 class ListenMode(ModeBase):
     """Audio flashcards for review or testing."""
     def _review_item(self, item):
         if self.config.output_file:
             File(self.config.output_file).appendline(item.line)
-        lang1_choice = random.choice(item.lang1_equivs)
-        lang2_choice = random.choice(item.lang2_equivs)
         cmds = self.config.cmds.split()
         while cmds:
-            cmds = self._run_cmds(cmds, item, lang1_choice, lang2_choice)
+            cmds = self._run_cmds(cmds, item)
 
     @staticmethod
     def _get_speed(cmd) -> float:
@@ -554,25 +557,25 @@ class ListenMode(ModeBase):
             speed = float(speedstr)
         return speed
 
-    def _run_cmds(self, cmds, item, lang1_choice, lang2_choice):
+    def _run_cmds(self, cmds, item):
         lang1_shown = False
         lang2_shown = False
         for cmd in cmds:
             if cmd.startswith("talk1") or cmd == "show1":
                 should_talk = cmd.startswith("talk1")
                 if not lang1_shown:
-                    q.alert(lang1_choice)
+                    q.alert(item.lang1_choice)
                     lang1_shown = True
                 if should_talk:
                     speed = ListenMode._get_speed(cmd)
-                    Audio.talk(lang1_choice, item.lang1.short, wait=True, speed=speed)
+                    Audio.talk(item.lang1_choice, item.lang1.short, wait=True, speed=speed)
             elif cmd.startswith("fast2") or cmd.startswith("slow2"):
                 slow = cmd.startswith("slow")
                 if not lang2_shown:
-                    q.alert(lang2_choice)
+                    q.alert(item.lang2_choice)
                     lang2_shown = True
                 speed = ListenMode._get_speed(cmd)
-                Audio.talk(lang2_choice, item.lang2.short, slow=slow, wait=True, speed=speed)
+                Audio.talk(item.lang2_choice, item.lang2.short, slow=slow, wait=True, speed=speed)
             elif cmd.startswith("delay="):
                 delay = float(cmd.split("=")[1])
                 time.sleep(delay)
@@ -605,57 +608,53 @@ class ListenMode(ModeBase):
 class LearnMode(ModeBase):
     """The user must type in the displayed lang2 translation, then type it in again from memory."""
     def _review_item(self, item):
-        lang1_choice = random.choice(item.lang1_equivs)
-        lang2_choice = random.choice(item.lang2_equivs)
         correct = False
         while not correct:
-            self._learn(item, lang1_choice, lang2_choice)
-            correct = self._test(item, lang1_choice, lang2_choice)
+            self._learn(item)
+            correct = self._test(item)
 
-    def _learn(self, item, lang1_choice, lang2_choice):
+    def _learn(self, item):
         q.echo(f"(Type the {item.lang2.full} translation.)")
-        q.alert(lang1_choice)
+        q.alert(item.lang1_choice)
         if self.config.lang1_talk:
-            Audio.talk(lang1_choice, item.lang1.short)
-        q.alert("> " + lang2_choice)
+            Audio.talk(item.lang1_choice, item.lang1.short)
+        q.alert("> " + item.lang2_choice)
         if self.config.lang2_talk:
-            Audio.talk(lang2_choice, item.lang2.short, slow=False)
-            Audio.talk(lang2_choice, item.lang2.short, slow=True)
+            Audio.talk(item.lang2_choice, item.lang2.short, slow=False)
+            Audio.talk(item.lang2_choice, item.lang2.short, slow=True)
         correct = False
         while not correct:
             response = q.ask_str("")
-            correct = ResponseChecker.is_valid(response, [lang2_choice])
+            correct = ResponseChecker.is_valid(response, [item.lang2_choice])
         q.echo("Correct!")
         time.sleep(1)
         Audio.wait_talk()
 
-    def _test(self, item, lang1_choice, lang2_choice) -> bool:
+    def _test(self, item) -> bool:
         q.clear()
         q.echo(f"(Type the {item.lang2.full} translation.)")
         correct = False
         attempts = 0
         while not correct:
-            Audio.talk(lang2_choice, item.lang2.short, slow=True, speed=0.9)
+            Audio.talk(item.lang2_choice, item.lang2.short, slow=True, speed=0.9)
             response = q.ask_str("")
-            correct = ResponseChecker.is_valid(response, [lang2_choice])
+            correct = ResponseChecker.is_valid(response, [item.lang2_choice])
             if not correct:
                 attempts += 1
                 if attempts >= self.config.max_attempts:
                     return False
         q.echo("Correct!")
-        q.alert(lang2_choice)
-        q.alert(lang1_choice)
-        Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=True, speed=0.9)
-        Audio.talk(lang1_choice, item.lang1.short, slow=False, wait=True)
-        Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=True)
+        q.alert(item.lang2_choice)
+        q.alert(item.lang1_choice)
+        Audio.talk(item.lang2_choice, item.lang2.short, slow=True, wait=True, speed=0.9)
+        Audio.talk(item.lang1_choice, item.lang1.short, slow=False, wait=True)
+        Audio.talk(item.lang2_choice, item.lang2.short, slow=True, wait=True)
         return True
 
 class RapidMode(ModeBase):
     """Rapidly review vocab."""
     def _review_item(self, item):
-        lang1_choice = random.choice(item.lang1_equivs)
-        lang2_choice = random.choice(item.lang2_equivs)
-        first, second = (lang1_choice, lang2_choice) if self.config.show_lang1_first else (lang2_choice, lang1_choice)
+        first, second = (item.lang1_choice, item.lang2_choice) if self.config.show_lang1_first else (item.lang2_choice, item.lang1_choice)
         q.alert(first)
         q.pause()
         self.reset_banner()
