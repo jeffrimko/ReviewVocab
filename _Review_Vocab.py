@@ -500,7 +500,7 @@ class TranslateMode(ModeBase):
         if not self.config.skip_translate:
             self._do_translate(item)
         else:
-            Audio.talk(item.lang2_choice, item.lang2.short, slow=False, wait=False)
+            Audio.talk(item.lang2_choice, item.lang2.short, slow=False, wait=True)
             q.pause()
 
     def _do_listen(self, item):
@@ -509,7 +509,7 @@ class TranslateMode(ModeBase):
         attempts = 0
         correct = False
         score = 0
-        while not correct:
+        while score != 100:
             response = q.ask_str("")
             if response:
                 score = ResponseChecker.get_score(response, [item.lang2_choice])
@@ -520,8 +520,9 @@ class TranslateMode(ModeBase):
                         q.alert(item.lang2_choice)
             if not correct:
                 Audio.talk(item.lang2_choice, item.lang2.short, slow=True, wait=False)
-        q.echo("Correct!" if score == 100 else "Almost correct!")
-        q.echo(item.lang2_choice)
+            else:
+                q.echo("Correct!" if score == 100 else "Almost correct!")
+                q.echo(item.lang2_choice)
 
     def _do_translate(self, item):
         q.echo(f"(Type the {item.lang1.full} translation.)")
