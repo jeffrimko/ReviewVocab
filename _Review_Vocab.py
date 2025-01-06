@@ -106,6 +106,7 @@ class TranslateModeConfig(CommonModeConfig):
     listen_attempts_before_reveal: int = 2
     translate_attempts_before_reveal: int = 2
     translate_min_score: int = 90
+    skip_translate: bool = False
 
 @dataclass
 class ListenModeConfig(CommonModeConfig):
@@ -491,7 +492,11 @@ class TranslateMode(ModeBase):
     def _review_item(self, item):
         lang2_choice = random.choice(item.lang2_equivs)
         self._do_listen(item, lang2_choice)
-        self._do_translate(item, lang2_choice)
+        if not self.config.skip_translate:
+            self._do_translate(item, lang2_choice)
+        else:
+            Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=False)
+            q.pause()
 
     def _do_listen(self, item, lang2_choice):
         Audio.talk(lang2_choice, item.lang2.short, slow=False, wait=False)
@@ -501,13 +506,15 @@ class TranslateMode(ModeBase):
         score = 0
         while not correct:
             response = q.ask_str("")
-            score = ResponseChecker.get_score(response, [lang2_choice])
-            correct = score >= self.config.listen_min_score
+            if response:
+                score = ResponseChecker.get_score(response, [lang2_choice])
+                correct = score >= self.config.listen_min_score
+                if not correct:
+                    attempts += 1
+                    if attempts >= self.config.listen_attempts_before_reveal:
+                        q.alert(lang2_choice)
             if not correct:
                 Audio.talk(lang2_choice, item.lang2.short, slow=True, wait=False)
-                attempts += 1
-                if attempts >= self.config.listen_attempts_before_reveal:
-                    q.alert(lang2_choice)
         q.echo("Correct!" if score == 100 else "Almost correct!")
         q.echo(lang2_choice)
 
