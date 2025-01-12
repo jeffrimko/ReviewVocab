@@ -488,7 +488,7 @@ class PracticeMode(ModeBase):
                     q.pause()
             else:
                 q.echo("Incorrect!")
-                q.echo(" (OR) ".join(answers))
+                q.echo(">>>   " + " (OR) ".join(answers))
                 self._missed.add(item)
                 if self.config.missed_file:
                     File(self.config.missed_file).appendline(item.line)
