@@ -119,6 +119,7 @@ class ListenModeConfig(CommonModeConfig):
 class LearnModeConfig(CommonModeConfig):
     lang1_talk: bool = True
     lang2_talk: bool = True
+    pause_between_langs: bool = False
     max_attempts: int = 2
 
 @dataclass
@@ -614,12 +615,31 @@ class LearnMode(ModeBase):
             self._learn(item)
             correct = self._test(item)
 
+    @staticmethod
+    def format_instruction_msg(item, include_extra=False):
+        msg = f"(Type the {item.lang2.full} translation."
+        if include_extra:
+            msg += " The text in parenthesis is extra info only."
+        msg += ")"
+        return msg
+
+    @staticmethod
+    def format_lang2_msg(item):
+        msg = item.lang2_choice
+        if item.lang2_extra:
+            msg += f" {item.lang2_extra}"
+        return msg
+
     def _learn(self, item):
-        q.echo(f"(Type the {item.lang2.full} translation.)")
+        has_extra = bool(item.lang2_extra)
+        msg = LearnMode.format_instruction_msg(item, has_extra)
+        q.echo(msg)
         q.alert(item.lang1_choice)
         if self.config.lang1_talk:
             Audio.talk(item.lang1_choice, item.lang1.short)
-        q.alert("> " + item.lang2_choice)
+        if self.config.pause_between_langs:
+            q.pause()
+        q.alert("> " + LearnMode.format_lang2_msg(item))
         if self.config.lang2_talk:
             Audio.talk(item.lang2_choice, item.lang2.short, slow=False)
             Audio.talk(item.lang2_choice, item.lang2.short, slow=True)
@@ -633,7 +653,7 @@ class LearnMode(ModeBase):
 
     def _test(self, item) -> bool:
         q.clear()
-        q.echo(f"(Type the {item.lang2.full} translation.)")
+        q.echo(LearnMode.format_instruction_msg(item))
         correct = False
         attempts = 0
         while not correct:
@@ -645,7 +665,7 @@ class LearnMode(ModeBase):
                 if attempts >= self.config.max_attempts:
                     return False
         q.echo("Correct!")
-        q.alert(item.lang2_choice)
+        q.alert(LearnMode.format_lang2_msg(item))
         q.alert(item.lang1_choice)
         Audio.talk(item.lang2_choice, item.lang2.short, slow=True, wait=True, speed=0.9)
         Audio.talk(item.lang1_choice, item.lang1.short, slow=False, wait=True)
