@@ -4,7 +4,7 @@
 This a Python CLI script for reviewing foreign language vocab.
 
 ## Status
-This project was refactored in December 2024 and is not compatible with previous versions.
+This project was refactored in December 2024 and is not compatible with previous versions. Refer to the tag `refactor-202412` for the previous codebase.
 
 ## Requirements
 Python 3.10+ is required. Additional third-party libraries are required and can be installed using the following command: `pip install -r requirements.txt`
