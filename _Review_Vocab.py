@@ -126,6 +126,7 @@ class LearnModeConfig(CommonModeConfig):
 class RapidModeConfig(CommonModeConfig):
     show_lang1_first: bool = True
     output_file: str = ""
+    missed_file: str = ""
 
 @dataclass
 class ModesConfig:
@@ -682,8 +683,10 @@ class RapidMode(ModeBase):
         q.alert(first)
         q.echo(">>> " + second)
         if self.config.output_file:
-            if q.ask_yesno("Add to output file?", default=False):
-                File(self.config.output_file).appendline(item.line)
+            File(self.config.output_file).appendline(item.line)
+        if self.config.missed_file:
+            if q.ask_yesno("Add to missed file?", default=False):
+                File(self.config.missed_file).appendline(item.line)
         else:
             q.pause()
 
