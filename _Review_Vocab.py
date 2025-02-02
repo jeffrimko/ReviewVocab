@@ -124,6 +124,8 @@ class LearnModeConfig(CommonModeConfig):
 
 @dataclass
 class RapidModeConfig(CommonModeConfig):
+    lang1_talk: bool = True
+    lang2_talk: bool = True
     show_lang1_first: bool = True
     output_file: str = ""
     missed_file: str = ""
@@ -380,7 +382,7 @@ class ModeBase(metaclass=abc.ABCMeta):
     def __init__(self, config, provider):
         self._config = config
         self._provider = provider
-        self._review: list[ReviewItem] = []
+        self._items: list[ReviewItem] = []
         self._curr_num = 0
 
     @property
@@ -397,39 +399,42 @@ class ModeBase(metaclass=abc.ABCMeta):
         menu = q.Menu()
         menu.add("r", "Start review", trycatch(lambda: self.review(), oncatch=on_err, rethrow=DEBUG_MODE))
         menu.add("e", "Edit config", self.config.show_editor)
-        menu.add("i", "Mode info", self.show_info)
+        menu.add("i", "Mode info", self._show_info)
         menu.add("q", "Quit mode", trigger_quit)
         while not quit:
             menu.show(header=self.__class__.__name__, default="r")
 
-    def show_info(self):
+    def _show_info(self):
         q.info(self.__class__.__doc__ or "NA")
 
     def review(self):
         with keep.presenting():
-            self._review_start()
-            for num, item in enumerate(self._iter_review(), 1):
-                self._curr_num = num
-                self.reset_banner()
-                self._review_item(item)
-            self._review_end()
-            q.clear()
+            self._items = self._provider.get_items(self.config.reviewnum, self.config.shuffle)
+            self._review_init()
+            repeat_review = True
+            while repeat_review:
+                self._review_start()
+                for num, item in enumerate(self._items, 1):
+                    self._curr_num = num
+                    self._reset_banner()
+                    self._review_item(item)
+                repeat_review = self._review_end()
+                q.clear()
 
-    def reset_banner(self):
+    def _reset_banner(self):
         q.clear()
         flush_input()
-        q.echo("%s of %s" % (self._curr_num, self.num_review))
+        q.echo("%s of %s" % (self._curr_num, self._num_items))
 
     @property
-    def num_review(self) -> int:
-        return len(self._review)
+    def _num_items(self) -> int:
+        return len(self._items)
+
+    def _review_init(self):
+        pass
 
     def _review_start(self):
-        self._review = self._provider.get_items(self.config.reviewnum, self.config.shuffle)
-
-    def _iter_review(self) -> Generator[ReviewItem, None, None]:
-        for item in self._review:
-            yield item
+        pass
 
     def _review_end(self):
         pass
@@ -447,7 +452,7 @@ class PracticeMode(ModeBase):
     def _review_start(self):
         self._missed = set()
         if self._repeat != None:
-            self._review = self._repeat
+            self._items = self._repeat
         else:
             super()._review_start()
 
@@ -586,7 +591,7 @@ class ListenMode(ModeBase):
                 q.pause()
             elif cmd == "askrepeat":
                 if q.ask_yesno("Repeat?", default=False):
-                    self.reset_banner()
+                    self._reset_banner()
                     if self.config.repeat_file:
                         File(self.config.repeat_file).appendline(item.line)
                     return cmds
@@ -676,12 +681,12 @@ class LearnMode(ModeBase):
 class RapidMode(ModeBase):
     """Rapidly review vocab."""
     def _review_item(self, item):
-        first, second = (item.lang1_choice, item.lang2_choice) if self.config.show_lang1_first else (item.lang2_choice, item.lang1_choice)
-        q.alert(first)
+        self._show_first(item)
         q.pause()
-        self.reset_banner()
-        q.alert(first)
-        q.echo(">>> " + second)
+        self._reset_banner()
+        self._show_first(item, True)
+        self._show_second(item)
+        Audio.wait_talk()
         if self.config.output_file:
             File(self.config.output_file).appendline(item.line)
         if self.config.missed_file:
@@ -689,6 +694,32 @@ class RapidMode(ModeBase):
                 File(self.config.missed_file).appendline(item.line)
         else:
             q.pause()
+
+    def _show_first(self, item, prevent_talk=False):
+        if self.config.show_lang1_first:
+            q.alert(item.lang1_choice)
+            if not prevent_talk:
+                self._talk_lang1(item)
+        else:
+            q.alert(item.lang2_choice)
+            if not prevent_talk:
+                self._talk_lang2(item)
+
+    def _show_second(self, item):
+        if self.config.show_lang1_first:
+            q.echo(">>> " + item.lang2_choice)
+            self._talk_lang2(item)
+        else:
+            q.echo(">>> " + item.lang1_choice)
+            self._talk_lang1(item)
+
+    def _talk_lang1(self, item):
+        if self.config.lang1_talk:
+            Audio.talk(item.lang1_choice, item.lang1.short)
+
+    def _talk_lang2(self, item):
+        if self.config.lang2_talk:
+            Audio.talk(item.lang2_choice, item.lang2.short)
 
 class ResponseChecker(Static):
     @staticmethod
