@@ -568,7 +568,7 @@ class ListenMode(ModeBase):
     def _run_cmds(self, cmds, item):
         lang1_shown = False
         lang2_shown = False
-        for cmd in cmds:
+        for idx,cmd in enumerate(cmds):
             if cmd.startswith("talk1") or cmd == "show1":
                 should_talk = cmd.startswith("talk1")
                 if not lang1_shown:
@@ -589,12 +589,15 @@ class ListenMode(ModeBase):
                 time.sleep(delay)
             elif cmd == "pause":
                 q.pause()
-            elif cmd == "askrepeat":
-                if q.ask_yesno("Repeat?", default=False):
-                    self._reset_banner()
+            elif cmd.startswith("askrepeat"):
+                num = int(cmd.split("=")[1]) if "=" in cmd else -1
+                num = -1 if num <= 0 else num
+                if q.ask_yesno(f"Repeat? ({'all' if num == -1 else num})", default=False):
+                    if num == -1:
+                        self._reset_banner()
                     if self.config.repeat_file:
                         File(self.config.repeat_file).appendline(item.line)
-                    return cmds
+                    return cmds if num == -1 else cmds[idx-num:]
             elif cmd == "beep":
                 Audio.beep()
             time.sleep(self.config.delay_between_cmds)
