@@ -308,21 +308,28 @@ class FileParser(Static):
     def get_valid_lines(content):
         lines = []
         for line in content.splitlines():
-            if FileParser._is_line_valid(line):
+            if FileParser.is_line_valid(line):
                 lines.append(line.strip())
         return lines
 
     @staticmethod
-    def _is_line_valid(line):
+    def is_line_valid(line):
         if not line:
             return False
         if line.count(";") != 1:
             return False
-        if line.startswith("//"):
-            return False
-        if line.startswith("#"):
+        if FileParser.is_comment_line(line):
             return False
         return True
+
+    @staticmethod
+    def is_comment_line(line):
+        stripped = line.strip()
+        if stripped.startswith("//"):
+            return True
+        if stripped.startswith("#"):
+            return True
+        return False
 
 class LangParser(Static):
     @staticmethod
