@@ -758,7 +758,8 @@ class Audio(Static):
     def beep():
         try:
             import winsound
-            winsound.Beep(300, 850)
+            beep_ms = 700
+            winsound.Beep(300, beep_ms)
         except:
             pass
 
