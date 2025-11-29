@@ -5,5 +5,6 @@ gTTS
 playsound
 qprompt
 thefuzz
+tinydb
 unidecode
 wakepy

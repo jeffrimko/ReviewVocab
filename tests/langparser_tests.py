@@ -30,6 +30,10 @@ class TestCase(unittest.TestCase):
         result = LangParser.get_equivs("Hello world|everyone.")
         self.assertEqual(result, ["Hello world.", "Hello everyone."])
 
+    def test_that_blank_word_equiv_is_handled(self):
+        result = LangParser.get_equivs("hello |world")
+        self.assertEqual(result, ["hello", "hello world"])
+
 ##==============================================================#
 ## SECTION: Main Body                                           #
 ##==============================================================#
